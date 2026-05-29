@@ -22,3 +22,6 @@ reviewpilot:
       api-base: https://api.deepseek.com
       api-key: ${DEEPSEEK_API_KEY:}
       model: deepseek-chat
+      timeout: 60s
+      max-tokens: 4096
+      temperature: 0.2

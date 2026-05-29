@@ -1,6 +1,5 @@
 package com.reviewpilot.service.github;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reviewpilot.config.GithubProperties;
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.service.diff.DiffLineType;
@@ -148,11 +147,5 @@ class GithubPrFetcherTest {
         // Confirm we still hit the correct path even when the PR has no files.
         RecordedRequest req = server.takeRequest();
         assertEquals("/repos/owner/repo/pulls/1/files?per_page=100", req.getPath());
-    }
-
-    /** Sanity: make sure the test JSON is itself valid (catches typos in the fixture). */
-    @Test
-    void test_fixture_is_valid_json() throws Exception {
-        new ObjectMapper().readTree("[]");
     }
 }
