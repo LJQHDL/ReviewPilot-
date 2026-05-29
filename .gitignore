@@ -1,0 +1,43 @@
+# --- Java / Maven ---
+backend/target/
+**/*.class
+**/*.jar
+**/*.war
+
+# --- IDE ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Node / Vite ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+
+# --- Secrets / local config ---
+.env
+.env.*
+application-local.yml
+application-local.properties
+
+# --- Large reference assets (not part of source) ---
+docs/requirements/Java开发手册（嵩山版）.pdf
+*.pdf
