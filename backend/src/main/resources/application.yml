@@ -1,0 +1,24 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: reviewpilot-backend
+
+logging:
+  level:
+    root: INFO
+    com.reviewpilot: DEBUG
+
+reviewpilot:
+  github:
+    api-base: https://api.github.com
+    token: ${GITHUB_TOKEN:}
+  ai:
+    provider: deepseek
+    deepseek:
+      api-base: https://api.deepseek.com
+      api-key: ${DEEPSEEK_API_KEY:}
+      model: deepseek-chat
