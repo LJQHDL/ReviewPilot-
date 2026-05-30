@@ -63,7 +63,7 @@ public class ReviewPipeline {
             );
         }
 
-        String userPrompt = promptBuilder.build(files);
+        String userPrompt = promptBuilder.build(files, java.util.Map.of(), List.of(), List.of());
         String raw = modelProvider.complete(promptBuilder.systemPrompt(), userPrompt);
         ReviewResult parsed = parseModelReply(raw, prUrlRaw);
 

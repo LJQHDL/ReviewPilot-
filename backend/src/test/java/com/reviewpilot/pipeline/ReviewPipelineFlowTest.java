@@ -54,7 +54,7 @@ class ReviewPipelineFlowTest {
                 3, 1, false, "@@ -1 +1 @@", List.of());
         when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
         when(promptBuilder.systemPrompt()).thenReturn("SYSTEM");
-        when(promptBuilder.build(eq(List.of(fc)))).thenReturn("USER-PROMPT");
+        when(promptBuilder.build(eq(List.of(fc)), any(), any(), any())).thenReturn("USER-PROMPT");
         when(modelProvider.complete("SYSTEM", "USER-PROMPT")).thenReturn("""
                 {"summary":"refactor Foo","risks":[],"suggestions":[]}
                 """);
@@ -80,14 +80,14 @@ class ReviewPipelineFlowTest {
         // PromptBuilder, not a literal.
         InOrder order = inOrder(fetcher, promptBuilder, modelProvider);
         order.verify(fetcher).fetchFiles(any());
-        order.verify(promptBuilder).build(eq(List.of(fc)));
+        order.verify(promptBuilder).build(eq(List.of(fc)), any(), any(), any());
         order.verify(promptBuilder).systemPrompt();
         order.verify(modelProvider).complete("SYSTEM", "USER-PROMPT");
 
         // Defensive: prompt builder receives the exact list the fetcher returned.
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<FileChange>> captor = ArgumentCaptor.forClass(List.class);
-        verify(promptBuilder).build(captor.capture());
+        verify(promptBuilder).build(captor.capture(), any(), any(), any());
         assertSame(fc, captor.getValue().get(0));
     }
 
@@ -102,7 +102,7 @@ class ReviewPipelineFlowTest {
         assertEquals("deepseek", r.meta().provider());
 
         // No prompt construction, no LLM call — saves tokens and avoids junk output.
-        verify(promptBuilder, never()).build(any());
+        verify(promptBuilder, never()).build(any(), any(), any(), any());
         verify(promptBuilder, never()).systemPrompt();
         verify(modelProvider, never()).complete(any(), any());
     }
@@ -138,7 +138,7 @@ class ReviewPipelineFlowTest {
         FileChange fc = new FileChange("a", "modified", 1, 0, false, "@@", List.of());
         when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        when(promptBuilder.build(any())).thenReturn("U");
+        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
         when(modelProvider.complete(any(), any())).thenReturn("""
                 ```json
                 {"summary":"ok","risks":[],"suggestions":[]}
