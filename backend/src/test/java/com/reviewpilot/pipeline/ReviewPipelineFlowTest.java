@@ -1,10 +1,13 @@
 package com.reviewpilot.pipeline;
 
 import com.reviewpilot.model.ReviewResult;
+import com.reviewpilot.model.RiskItem;
+import com.reviewpilot.model.RiskLevel;
 import com.reviewpilot.service.ai.ModelProvider;
 import com.reviewpilot.service.classifier.FileClassifier;
 import com.reviewpilot.service.classifier.FileType;
 import com.reviewpilot.service.context.ContextLoader;
+import com.reviewpilot.service.context.ContextSlice;
 import com.reviewpilot.service.diff.FileChange;
 import com.reviewpilot.service.github.GithubPrFetcher;
 import com.reviewpilot.service.github.GithubPrNotFoundException;
@@ -16,6 +19,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -88,12 +92,16 @@ class ReviewPipelineFlowTest {
         assertEquals(1, r.meta().filesAnalyzed());
         assertTrue(r.meta().elapsedMs() >= 0, "elapsedMs should be measured");
 
-        // Verify ordering: fetch → build user prompt → ask for system prompt
-        // → call LLM. promptBuilder.build must be fed exactly the fetch
-        // output, and the model call must use the system prompt from
-        // PromptBuilder, not a literal.
-        InOrder order = inOrder(fetcher, promptBuilder, modelProvider);
+        // Verify ordering across the full pipeline: fetch → classify each file
+        // → run rule scans → load context → build prompt → ask for system
+        // prompt → call LLM. The new collaborators (classifier, riskDetector,
+        // contextLoader) must each be invoked exactly once in this order.
+        InOrder order = inOrder(fetcher, classifier, riskDetector, contextLoader,
+                promptBuilder, modelProvider);
         order.verify(fetcher).fetchFiles(any());
+        order.verify(classifier).classify(fc);
+        order.verify(riskDetector).scan(eq(List.of(fc)));
+        order.verify(contextLoader).load(eq(List.of(fc)), eq(List.of()));
         order.verify(promptBuilder).build(eq(List.of(fc)), any(), any(), any());
         order.verify(promptBuilder).systemPrompt();
         order.verify(modelProvider).complete("SYSTEM", "USER-PROMPT");
@@ -103,6 +111,92 @@ class ReviewPipelineFlowTest {
         ArgumentCaptor<List<FileChange>> captor = ArgumentCaptor.forClass(List.class);
         verify(promptBuilder).build(captor.capture(), any(), any(), any());
         assertSame(fc, captor.getValue().get(0));
+    }
+
+    @Test
+    void classifier_runs_once_per_file_and_classifications_reach_prompt_builder() {
+        FileChange a = new FileChange("Foo.java", "modified", 1, 0, false, "@@", List.of());
+        FileChange b = new FileChange("Bar.java", "modified", 1, 0, false, "@@", List.of());
+        when(fetcher.fetchFiles(any())).thenReturn(List.of(a, b));
+        when(classifier.classify(a)).thenReturn(FileType.CONTROLLER);
+        when(classifier.classify(b)).thenReturn(FileType.SERVICE);
+        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
+        when(promptBuilder.systemPrompt()).thenReturn("S");
+        when(modelProvider.complete(any(), any())).thenReturn(
+                "{\"summary\":\"\",\"risks\":[],\"suggestions\":[]}");
+
+        pipeline.review("https://github.com/o/r/pull/1");
+
+        verify(classifier).classify(a);
+        verify(classifier).classify(b);
+
+        // The map handed to PromptBuilder must reflect what classifier returned —
+        // not all-OTHER, not partial. Otherwise role-specific prompts disappear.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, FileType>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(promptBuilder).build(any(), captor.capture(), any(), any());
+        Map<String, FileType> classifications = captor.getValue();
+        assertEquals(FileType.CONTROLLER, classifications.get("Foo.java"));
+        assertEquals(FileType.SERVICE, classifications.get("Bar.java"));
+    }
+
+    @Test
+    void rule_risks_flow_into_prompt_and_are_merged_into_result() {
+        FileChange fc = new FileChange("Foo.java", "modified", 1, 0, false, "@@", List.of());
+        RiskItem ruleRisk = new RiskItem(RiskLevel.HIGH, "Foo.java", 12, "lock without unlock");
+        ContextSlice slice = new ContextSlice("Foo.java", 7, 17,
+                List.of("  7: x", "+ 12: lock", "  17: y"));
+
+        when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
+        when(riskDetector.scan(eq(List.of(fc)))).thenReturn(List.of(ruleRisk));
+        when(contextLoader.load(eq(List.of(fc)), eq(List.of(ruleRisk)))).thenReturn(List.of(slice));
+        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
+        when(promptBuilder.systemPrompt()).thenReturn("S");
+        // Model returns one new risk; ruleRisk is not echoed.
+        when(modelProvider.complete(any(), any())).thenReturn("""
+                {"summary":"ok","risks":[{"level":"MEDIUM","file":"Foo.java","line":42,"message":"ai finding"}],"suggestions":[]}
+                """);
+
+        ReviewResult r = pipeline.review("https://github.com/o/r/pull/1");
+
+        // ContextLoader received the rule risks (not an empty list) — proves
+        // the wiring carries findings forward, not just classification.
+        verify(contextLoader).load(eq(List.of(fc)), eq(List.of(ruleRisk)));
+
+        // PromptBuilder received both the rule risks and the context slice.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<RiskItem>> riskCaptor = ArgumentCaptor.forClass(List.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ContextSlice>> ctxCaptor = ArgumentCaptor.forClass(List.class);
+        verify(promptBuilder).build(any(), any(), riskCaptor.capture(), ctxCaptor.capture());
+        assertEquals(1, riskCaptor.getValue().size());
+        assertEquals("lock without unlock", riskCaptor.getValue().get(0).message());
+        assertEquals(1, ctxCaptor.getValue().size());
+
+        // Final result merges rule + AI risks; rule findings come first.
+        assertEquals(2, r.risks().size());
+        assertEquals("lock without unlock", r.risks().get(0).message());
+        assertEquals("ai finding", r.risks().get(1).message());
+    }
+
+    @Test
+    void rule_and_ai_risks_with_same_file_line_message_are_deduplicated() {
+        // The model dutifully echoes the rule finding verbatim. Without dedup
+        // the UI would show the same row twice.
+        FileChange fc = new FileChange("Foo.java", "modified", 1, 0, false, "@@", List.of());
+        RiskItem ruleRisk = new RiskItem(RiskLevel.HIGH, "Foo.java", 12, "lock without unlock");
+        when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
+        when(riskDetector.scan(any())).thenReturn(List.of(ruleRisk));
+        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
+        when(promptBuilder.systemPrompt()).thenReturn("S");
+        when(modelProvider.complete(any(), any())).thenReturn("""
+                {"summary":"ok","risks":[{"level":"HIGH","file":"Foo.java","line":12,"message":"lock without unlock"}],"suggestions":[]}
+                """);
+
+        ReviewResult r = pipeline.review("https://github.com/o/r/pull/1");
+
+        assertEquals(1, r.risks().size(), "duplicate (file,line,message) should collapse");
+        assertEquals("lock without unlock", r.risks().get(0).message());
     }
 
     @Test
