@@ -9,23 +9,41 @@ import com.reviewpilot.model.RiskItem;
 import com.reviewpilot.model.RiskLevel;
 import com.reviewpilot.model.Suggestion;
 import com.reviewpilot.service.ai.ModelProvider;
+import com.reviewpilot.service.classifier.FileClassifier;
+import com.reviewpilot.service.classifier.FileType;
+import com.reviewpilot.service.context.ContextLoader;
+import com.reviewpilot.service.context.ContextSlice;
 import com.reviewpilot.service.diff.FileChange;
 import com.reviewpilot.service.github.GithubPrFetcher;
 import com.reviewpilot.service.prompt.PromptBuilder;
+import com.reviewpilot.service.risk.RiskDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * Orchestrates the Day1 main flow:
+ * Orchestrates the full review pipeline:
  * <pre>
- *   PrUrl → GithubPrFetcher → PromptBuilder → ModelProvider → ReviewResult
+ *   PrUrl
+ *     → GithubPrFetcher    (fetch changed files + parse hunks)
+ *     → FileClassifier     (route each file to a FileType)
+ *     → RiskDetector       (run rule scans, collect RiskItems)
+ *     → ContextLoader      (extract code windows around risks)
+ *     → PromptBuilder      (group by type, embed risks + context)
+ *     → ModelProvider      (call the LLM)
+ *     → ReviewResult       (parse JSON + merge rule risks)
  * </pre>
- * PR#4-#6 inject FileClassifier / RiskDetector / ContextLoader between
- * fetch and prompt. The pipeline lives behind {@link com.reviewpilot.controller.ReviewController}.
+ * The pipeline lives behind {@link com.reviewpilot.controller.ReviewController}.
+ * Rule-detected risks are surfaced both in the prompt (so the AI builds on them)
+ * and merged into the final {@code ReviewResult.risks()} (so the UI shows them
+ * even when the model omits one).
  */
 @Service
 public class ReviewPipeline {
@@ -33,14 +51,23 @@ public class ReviewPipeline {
     private static final Logger log = LoggerFactory.getLogger(ReviewPipeline.class);
 
     private final GithubPrFetcher fetcher;
+    private final FileClassifier classifier;
+    private final RiskDetector riskDetector;
+    private final ContextLoader contextLoader;
     private final PromptBuilder promptBuilder;
     private final ModelProvider modelProvider;
     private final ObjectMapper json = new ObjectMapper();
 
     public ReviewPipeline(GithubPrFetcher fetcher,
+                          FileClassifier classifier,
+                          RiskDetector riskDetector,
+                          ContextLoader contextLoader,
                           PromptBuilder promptBuilder,
                           ModelProvider modelProvider) {
         this.fetcher = fetcher;
+        this.classifier = classifier;
+        this.riskDetector = riskDetector;
+        this.contextLoader = contextLoader;
         this.promptBuilder = promptBuilder;
         this.modelProvider = modelProvider;
     }
@@ -63,14 +90,25 @@ public class ReviewPipeline {
             );
         }
 
-        String userPrompt = promptBuilder.build(files);
+        Map<String, FileType> classifications = new HashMap<>();
+        for (FileChange f : files) {
+            classifications.put(f.filename(), classifier.classify(f));
+        }
+        List<RiskItem> ruleRisks = riskDetector.scan(files);
+        List<ContextSlice> contexts = contextLoader.load(files, ruleRisks);
+        log.debug("Pipeline: {} files, {} rule risks, {} context slices",
+                files.size(), ruleRisks.size(), contexts.size());
+
+        String userPrompt = promptBuilder.build(files, classifications, ruleRisks, contexts);
         String raw = modelProvider.complete(promptBuilder.systemPrompt(), userPrompt);
         ReviewResult parsed = parseModelReply(raw, prUrlRaw);
+
+        List<RiskItem> mergedRisks = mergeRisks(ruleRisks, parsed.risks());
 
         return new ReviewResult(
                 parsed.prUrl(),
                 parsed.summary(),
-                parsed.risks(),
+                mergedRisks,
                 parsed.suggestions(),
                 new ReviewResult.Meta(modelProvider.name(), null, files.size(),
                         System.currentTimeMillis() - started)
@@ -78,12 +116,34 @@ public class ReviewPipeline {
     }
 
     /**
+     * Combines rule-detected and AI-detected risks into one list, deduplicated
+     * by (file, line, message) so a model that faithfully echoes a rule finding
+     * doesn't produce a duplicate row in the UI. Rule findings come first so
+     * they remain visible even if the model omits them entirely.
+     */
+    private static List<RiskItem> mergeRisks(List<RiskItem> ruleRisks, List<RiskItem> aiRisks) {
+        Set<String> seen = new LinkedHashSet<>();
+        List<RiskItem> out = new ArrayList<>(ruleRisks.size() + aiRisks.size());
+        for (RiskItem r : ruleRisks) addIfNew(r, seen, out);
+        for (RiskItem r : aiRisks) addIfNew(r, seen, out);
+        return out;
+    }
+
+    private static void addIfNew(RiskItem r, Set<String> seen, List<RiskItem> out) {
+        if (r == null) return;
+        String key = (r.file() == null ? "" : r.file()) + "|" + r.line() + "|" + (r.message() == null ? "" : r.message());
+        if (seen.add(key)) out.add(r);
+    }
+
+    /**
      * Parses the model reply into a {@link ReviewResult}. Models occasionally
-     * wrap JSON in markdown fences or add a leading sentence — strip those
-     * before parsing so a slightly disobedient response doesn't fail the request.
+     * wrap JSON in markdown fences, add a leading sentence ("Here is the JSON:"),
+     * or trail off after the closing brace. Strip fences first, then carve out
+     * the substring from the first '{' to the last '}' so a slightly disobedient
+     * response still parses cleanly.
      */
     ReviewResult parseModelReply(String raw, String prUrl) {
-        String cleaned = stripFences(raw).trim();
+        String cleaned = extractJsonObject(stripFences(raw).trim());
 
         try {
             JsonNode root = json.readTree(cleaned);
@@ -98,6 +158,20 @@ public class ReviewPipeline {
             // user gets something useful; downstream UI shows raw text in that field.
             return new ReviewResult(prUrl, cleaned, List.of(), List.of(), null);
         }
+    }
+
+    /**
+     * Carve out the JSON object body from text that may have leading prose
+     * (e.g. "Here is the JSON: {...}") or a trailing comment. Looks for the
+     * first '{' and the last '}'; if either is missing or out of order, returns
+     * the input unchanged so the parser produces a clear error.
+     */
+    static String extractJsonObject(String s) {
+        if (s == null || s.isEmpty()) return "";
+        int first = s.indexOf('{');
+        int last = s.lastIndexOf('}');
+        if (first < 0 || last <= first) return s;
+        return s.substring(first, last + 1);
     }
 
     private List<RiskItem> parseRisks(JsonNode arr) {
