@@ -2,10 +2,14 @@ package com.reviewpilot.pipeline;
 
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.service.ai.ModelProvider;
+import com.reviewpilot.service.classifier.FileClassifier;
+import com.reviewpilot.service.classifier.FileType;
+import com.reviewpilot.service.context.ContextLoader;
 import com.reviewpilot.service.diff.FileChange;
 import com.reviewpilot.service.github.GithubPrFetcher;
 import com.reviewpilot.service.github.GithubPrNotFoundException;
 import com.reviewpilot.service.prompt.PromptBuilder;
+import com.reviewpilot.service.risk.RiskDetector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,6 +39,9 @@ import static org.mockito.Mockito.when;
 class ReviewPipelineFlowTest {
 
     private GithubPrFetcher fetcher;
+    private FileClassifier classifier;
+    private RiskDetector riskDetector;
+    private ContextLoader contextLoader;
     private PromptBuilder promptBuilder;
     private ModelProvider modelProvider;
     private ReviewPipeline pipeline;
@@ -42,10 +49,17 @@ class ReviewPipelineFlowTest {
     @BeforeEach
     void setup() {
         fetcher = mock(GithubPrFetcher.class);
+        classifier = mock(FileClassifier.class);
+        riskDetector = mock(RiskDetector.class);
+        contextLoader = mock(ContextLoader.class);
         promptBuilder = mock(PromptBuilder.class);
         modelProvider = mock(ModelProvider.class);
         when(modelProvider.name()).thenReturn("deepseek");
-        pipeline = new ReviewPipeline(fetcher, promptBuilder, modelProvider);
+        when(classifier.classify(any())).thenReturn(FileType.OTHER);
+        when(riskDetector.scan(any())).thenReturn(List.of());
+        when(contextLoader.load(any(), any())).thenReturn(List.of());
+        pipeline = new ReviewPipeline(fetcher, classifier, riskDetector,
+                contextLoader, promptBuilder, modelProvider);
     }
 
     @Test

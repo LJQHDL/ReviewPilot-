@@ -14,10 +14,11 @@ class ReviewPipelineParseTest {
      * point is invoked, so for parser-only tests we can pass nulls — none of
      * them get touched by parseModelReply / stripFences.
      */
-    private final ReviewPipeline pipeline = new ReviewPipeline(null, null, new com.reviewpilot.service.ai.ModelProvider() {
-        public String name() { return "stub"; }
-        public String complete(String s, String u) { return ""; }
-    });
+    private final ReviewPipeline pipeline = new ReviewPipeline(null, null, null, null, null,
+            new com.reviewpilot.service.ai.ModelProvider() {
+                public String name() { return "stub"; }
+                public String complete(String s, String u) { return ""; }
+            });
 
     @Test
     void parses_well_formed_json() {
