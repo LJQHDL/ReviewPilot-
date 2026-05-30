@@ -7,12 +7,13 @@ import com.reviewpilot.service.context.ContextSlice;
 import com.reviewpilot.service.diff.FileChange;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
 class PromptBuilderTest {
 
     private final PromptBuilder builder = new PromptBuilder();
@@ -92,6 +93,44 @@ class PromptBuilderTest {
         String out = builder.build(List.of(f), Map.of("logo.png", FileType.OTHER),
                 List.of(), List.of());
         assertTrue(out.contains("(binary or no patch)"));
+    }
+
+    @Test
+    void per_file_patch_exceeding_budget_is_truncated_with_marker() {
+        // Build a patch larger than the per-file 6_000 char cap. The renderer
+        // must truncate it (not silently include or drop it) so a single huge
+        // file can't blow the total prompt budget.
+        String huge = "@@\n" + "x".repeat(20_000);
+        FileChange f = file("Big.java", huge);
+
+        String out = builder.build(List.of(f), Map.of("Big.java", FileType.OTHER),
+                List.of(), List.of());
+
+        assertTrue(out.contains("[...truncated"), "per-file truncation marker missing");
+        assertFalse(out.contains("x".repeat(20_000)), "untruncated patch should not appear in full");
+    }
+
+    @Test
+    void total_budget_exceeded_drops_remaining_files_with_marker() {
+        // Build enough files to overflow MAX_TOTAL_CHARS (60_000). Each file
+        // here carries a ~6_000-char patch (right at the per-file cap), so a
+        // dozen of them comfortably exceed the total budget.
+        String big = "@@\n" + "y".repeat(6_000);
+        List<FileChange> files = new ArrayList<>();
+        Map<String, FileType> types = new HashMap<>();
+        for (int i = 0; i < 20; i++) {
+            String name = "F" + i + ".java";
+            files.add(file(name, big));
+            types.put(name, FileType.OTHER);
+        }
+
+        String out = builder.build(files, types, List.of(), List.of());
+
+        assertTrue(out.contains("remaining files omitted to stay within prompt budget"),
+                "total-budget truncation marker missing");
+        // The first file's header must be present; at least one tail file must not be.
+        assertTrue(out.contains("### FILE: F0.java"), "first file should have been included");
+        assertFalse(out.contains("### FILE: F19.java"), "last file should have been dropped");
     }
 
     private static FileChange file(String name, String patch) {
