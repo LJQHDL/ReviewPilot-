@@ -80,7 +80,8 @@ class FileClassifierTest {
 
     @Test
     void java_without_recognised_annotation_falls_back_to_other() {
-        // A plain DTO / record / utility doesn't carry a stereotype we route on.
+        // A plain DTO / record / utility doesn't carry a stereotype we route on,
+        // and its filename has no role-suffix either.
         String patch = "@@ -0,0 +1,1 @@\n+public record Foo(String bar) {}\n";
         assertEquals(FileType.OTHER,
                 classifier.classify(change("backend/src/main/java/com/example/Foo.java", patch)));
@@ -88,9 +89,49 @@ class FileClassifierTest {
 
     @Test
     void java_with_null_patch_falls_back_to_other() {
-        // Renames or binary-ish entries arrive without a patch body.
+        // Renames or binary-ish entries arrive without a patch body, and the
+        // filename here has no role-suffix.
         assertEquals(FileType.OTHER,
                 classifier.classify(change("backend/src/main/java/com/example/Foo.java", null)));
+    }
+
+    @Test
+    void java_with_method_only_patch_uses_filename_suffix_for_routing() {
+        // A PR that only edits a method body of an existing OrderService.java
+        // won't have @Service in its patch — the class header isn't in the diff.
+        // Without the filename fallback this routes to OTHER, breaking role-
+        // specific rules (RiskDetector) and prompts (PromptBuilder).
+        String patch = """
+                @@ -42,3 +42,4 @@
+                 public void placeOrder(Order o) {
+                +    log.info("placing");
+                     repo.save(o);
+                 }""";
+        assertEquals(FileType.SERVICE,
+                classifier.classify(change("backend/src/main/java/com/example/OrderService.java", patch)));
+    }
+
+    @Test
+    void java_filename_suffix_routes_controller_service_impl_and_config() {
+        // No annotation in the patch — fallback alone must classify each correctly.
+        String trivial = "@@ -1 +1 @@\n-x\n+y\n";
+        assertEquals(FileType.CONTROLLER, classifier.classify(
+                change("src/main/java/foo/UserController.java", trivial)));
+        assertEquals(FileType.SERVICE, classifier.classify(
+                change("src/main/java/foo/UserServiceImpl.java", trivial)));
+        assertEquals(FileType.CONFIG, classifier.classify(
+                change("src/main/java/foo/AppProperties.java", trivial)));
+        assertEquals(FileType.CONFIG, classifier.classify(
+                change("src/main/java/foo/SecurityConfig.java", trivial)));
+    }
+
+    @Test
+    void annotation_scan_wins_over_filename_when_patch_disagrees() {
+        // Defensive: if the patch contains @RestController but the filename is
+        // generic (e.g. Foo.java), trust the annotation. Annotation scan runs first.
+        String patch = "@@ -0,0 +1,2 @@\n+@RestController\n+public class Foo {}\n";
+        assertEquals(FileType.CONTROLLER,
+                classifier.classify(change("src/main/java/foo/Foo.java", patch)));
     }
 
     @Test

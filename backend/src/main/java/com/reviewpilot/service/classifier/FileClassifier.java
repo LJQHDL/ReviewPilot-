@@ -18,10 +18,12 @@ import org.springframework.stereotype.Component;
  *   <li>SQL — extension {@code .sql}.</li>
  *   <li>Spring config files — {@code application*.yml} / {@code .yaml} /
  *       {@code .properties} anywhere in the path.</li>
- *   <li>Java sources — scan the patch for Spring stereotypes (cheap substring
- *       match against added/context lines). {@code @RestController} or
- *       {@code @Controller} → CONTROLLER; {@code @Service} → SERVICE;
- *       {@code @Configuration} or {@code @ConfigurationProperties} → CONFIG.</li>
+ *   <li>Java sources — first scan the patch for Spring stereotypes (cheap
+ *       substring match against added/context lines). When the patch has no
+ *       recognizable annotation (e.g. the PR only edits a method body of an
+ *       already-existing service class), fall back to a filename-suffix check
+ *       so {@code OrderService.java} still classifies as SERVICE even when its
+ *       class header isn't in the diff.</li>
  *   <li>Anything else → OTHER.</li>
  * </ol>
  *
@@ -50,7 +52,7 @@ public class FileClassifier {
             return FileType.CONFIG;
         }
         if (lower.endsWith(".java")) {
-            return classifyJava(change.patch());
+            return classifyJava(path, change.patch());
         }
         return FileType.OTHER;
     }
@@ -80,19 +82,35 @@ public class FileClassifier {
                 || filename.equals("bootstrap.properties");
     }
 
-    private static FileType classifyJava(String patch) {
-        if (patch == null || patch.isEmpty()) {
-            return FileType.OTHER;
+    private static FileType classifyJava(String path, String patch) {
+        // Annotation scan first — works when the PR adds/touches a class header.
+        if (patch != null && !patch.isEmpty()) {
+            if (patch.contains("@RestController") || patch.contains("@Controller")) {
+                return FileType.CONTROLLER;
+            }
+            if (patch.contains("@Service")) {
+                return FileType.SERVICE;
+            }
+            if (patch.contains("@ConfigurationProperties") || patch.contains("@Configuration")) {
+                return FileType.CONFIG;
+            }
         }
-        if (patch.contains("@RestController") || patch.contains("@Controller")) {
-            return FileType.CONTROLLER;
-        }
-        if (patch.contains("@Service")) {
-            return FileType.SERVICE;
-        }
-        if (patch.contains("@ConfigurationProperties") || patch.contains("@Configuration")) {
-            return FileType.CONFIG;
-        }
+        // Fallback by filename: a PR that only edits a method body inside an
+        // existing OrderService.java won't have @Service in its patch, but the
+        // file's role is still SERVICE. Without this fallback, downstream
+        // RiskDetector and PromptBuilder route those edits to OTHER, missing
+        // role-specific rules and prompts.
+        int slash = path.lastIndexOf('/');
+        String filename = slash < 0 ? path : path.substring(slash + 1);
+        // Strip ".java" suffix once so endsWith below is unambiguous.
+        String basename = filename.endsWith(".java")
+                ? filename.substring(0, filename.length() - 5)
+                : filename;
+        if (basename.endsWith("Controller")) return FileType.CONTROLLER;
+        if (basename.endsWith("ServiceImpl") || basename.endsWith("Service")) return FileType.SERVICE;
+        if (basename.endsWith("Properties")
+                || basename.endsWith("Configuration")
+                || basename.endsWith("Config")) return FileType.CONFIG;
         return FileType.OTHER;
     }
 }
