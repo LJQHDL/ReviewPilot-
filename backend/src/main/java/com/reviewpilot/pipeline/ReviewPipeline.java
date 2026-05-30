@@ -137,11 +137,13 @@ public class ReviewPipeline {
 
     /**
      * Parses the model reply into a {@link ReviewResult}. Models occasionally
-     * wrap JSON in markdown fences or add a leading sentence — strip those
-     * before parsing so a slightly disobedient response doesn't fail the request.
+     * wrap JSON in markdown fences, add a leading sentence ("Here is the JSON:"),
+     * or trail off after the closing brace. Strip fences first, then carve out
+     * the substring from the first '{' to the last '}' so a slightly disobedient
+     * response still parses cleanly.
      */
     ReviewResult parseModelReply(String raw, String prUrl) {
-        String cleaned = stripFences(raw).trim();
+        String cleaned = extractJsonObject(stripFences(raw).trim());
 
         try {
             JsonNode root = json.readTree(cleaned);
@@ -156,6 +158,20 @@ public class ReviewPipeline {
             // user gets something useful; downstream UI shows raw text in that field.
             return new ReviewResult(prUrl, cleaned, List.of(), List.of(), null);
         }
+    }
+
+    /**
+     * Carve out the JSON object body from text that may have leading prose
+     * (e.g. "Here is the JSON: {...}") or a trailing comment. Looks for the
+     * first '{' and the last '}'; if either is missing or out of order, returns
+     * the input unchanged so the parser produces a clear error.
+     */
+    static String extractJsonObject(String s) {
+        if (s == null || s.isEmpty()) return "";
+        int first = s.indexOf('{');
+        int last = s.lastIndexOf('}');
+        if (first < 0 || last <= first) return s;
+        return s.substring(first, last + 1);
     }
 
     private List<RiskItem> parseRisks(JsonNode arr) {

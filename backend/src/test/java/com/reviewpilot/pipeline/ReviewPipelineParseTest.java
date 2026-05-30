@@ -89,4 +89,52 @@ class ReviewPipelineParseTest {
     void stripFences_keeps_content_without_fences() {
         assertEquals("{\"a\":1}", ReviewPipeline.stripFences("{\"a\":1}").trim());
     }
+
+    @Test
+    void parses_json_with_leading_explanatory_prose() {
+        // Models sometimes preface the JSON with "Here is the JSON:" or similar.
+        // We must still recover the structured risks/suggestions, not fall back
+        // to dumping the whole reply as summary text.
+        String reply = """
+                Here is the JSON you asked for:
+                {"summary":"all good","risks":[{"level":"HIGH","file":"a","line":1,"message":"x"}],"suggestions":[]}
+                """;
+        ReviewResult r = pipeline.parseModelReply(reply, "u");
+
+        assertEquals("all good", r.summary());
+        assertEquals(1, r.risks().size());
+        assertEquals(RiskLevel.HIGH, r.risks().get(0).level());
+        assertEquals("x", r.risks().get(0).message());
+    }
+
+    @Test
+    void parses_json_with_trailing_prose_after_closing_brace() {
+        String reply = """
+                {"summary":"ok","risks":[],"suggestions":[]}
+                Hope this helps!
+                """;
+        ReviewResult r = pipeline.parseModelReply(reply, "u");
+        assertEquals("ok", r.summary());
+        assertTrue(r.risks().isEmpty());
+    }
+
+    @Test
+    void parses_json_wrapped_in_fence_AND_leading_prose() {
+        // Worst case: prose + fence + JSON. Both layers must peel off.
+        String reply = """
+                Sure, here you go:
+                ```json
+                {"summary":"combo","risks":[],"suggestions":[]}
+                ```
+                """;
+        ReviewResult r = pipeline.parseModelReply(reply, "u");
+        assertEquals("combo", r.summary());
+    }
+
+    @Test
+    void extractJsonObject_returns_input_when_no_braces() {
+        // Reply with no JSON at all should pass through unchanged so the
+        // parser produces a clear error and we fall back to text summary.
+        assertEquals("not json at all", ReviewPipeline.extractJsonObject("not json at all"));
+    }
 }
