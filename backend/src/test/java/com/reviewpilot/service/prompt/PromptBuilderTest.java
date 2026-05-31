@@ -158,6 +158,20 @@ class PromptBuilderTest {
     }
 
     @Test
+    void system_prompt_includes_npe_context_guard() {
+        // Lock c8: NPE findings must consult the Context block before firing,
+        // to avoid the classic AI-reviewer false positive of flagging every
+        // chained call as NPE-prone without checking the surrounding null guards.
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("NPE risk"),
+                "system prompt must keep the NPE-risk guidance header");
+        assertTrue(sys.contains("Context"),
+                "guidance must direct the model to consult the Context block");
+        assertTrue(sys.contains("False-positive NPE warnings"),
+                "guidance must keep the explicit reviewer-trust framing");
+    }
+
+    @Test
     void custom_budget_truncates_at_lower_limit() {
         // Demo / evaluator path: bump down the per-file cap to 200 chars and
         // confirm a 1k-char patch trips the truncation marker. Lock the new

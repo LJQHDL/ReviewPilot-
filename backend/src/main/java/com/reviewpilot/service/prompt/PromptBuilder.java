@@ -107,6 +107,19 @@ public class PromptBuilder {
                   LOW:    style, nit, comment / formatting; no functional impact.
                 A "behavior or semantics is changed" finding from the checklist above must
                 be HIGH, not MEDIUM. Do not soften ratings to be polite.
+
+                NPE risk — be context-aware before flagging:
+                Pattern matches like `a.b().c()` or repeated `.getCause()` chains are
+                NOT automatically NPE risks. Before raising one, check the 'Context'
+                block above the patch for an existing guard:
+                  - explicit `if (x == null)` / `!= null` checks
+                  - `Objects.requireNonNull(x)` / `Optional.ofNullable(x)`
+                  - early return / throw on the null path
+                  - ternary `x == null ? ... : x.foo()`
+                If a guard is present in the visible context, do NOT emit an NPE finding.
+                If the relevant context wasn't included (you only see the diff), say so
+                explicitly in the message ("no visible null guard in context") and rate
+                LOW rather than MEDIUM. False-positive NPE warnings burn reviewer trust.
                 """;
     }
 
