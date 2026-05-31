@@ -1,5 +1,6 @@
 package com.reviewpilot.controller;
 
+import com.reviewpilot.model.ErrorResponse;
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.service.diff.FileChange;
 import com.reviewpilot.service.github.GithubAuthException;
@@ -14,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Thin demo endpoint exercised in PR#2 to verify the GitHub fetch + diff
@@ -38,17 +38,17 @@ public class PrFilesController {
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleBadInput(IllegalArgumentException e) {
-        return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+    public ResponseEntity<ErrorResponse> handleBadInput(IllegalArgumentException e) {
+        return ResponseEntity.badRequest().body(ErrorResponse.of(e.getMessage()));
     }
 
     @ExceptionHandler(GithubPrNotFoundException.class)
-    public ResponseEntity<Map<String, String>> handleNotFound(GithubPrNotFoundException e) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+    public ResponseEntity<ErrorResponse> handleNotFound(GithubPrNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of(e.getMessage()));
     }
 
     @ExceptionHandler(GithubAuthException.class)
-    public ResponseEntity<Map<String, String>> handleAuth(GithubAuthException e) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", e.getMessage()));
+    public ResponseEntity<ErrorResponse> handleAuth(GithubAuthException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ErrorResponse.of(e.getMessage()));
     }
 }
