@@ -50,7 +50,7 @@ Prompt 模板与 Token 策略：见 [`docs/prompt-strategy.md`](docs/prompt-stra
 
 **核心工程亮点**：不一次性把整团 diff 扔给 LLM，而是先做规则风险检测 → 上下文增强 → 按文件类型分流 Prompt → AI 分析。这让规则层稳定命中已知模式（不依赖 LLM 心情），LLM 专注做规则抓不到的语义/架构层判断。
 
-**PR#9 强化**：针对评测反馈"能找代码层 bug 但抓不住异常语义改变 / 应在根因层修复"两类资深 Reviewer 视角问题，做了三项强化：① 在 Prompt 里加"语义/异常/契约改变 checklist"和"HIGH/MEDIUM/LOW 评级标尺"，明确要求行为/语义被改变 → HIGH；② 新增 `ExceptionSwallowingRule` 检测 `catch X → throw new Y` 的类型洗白；③ Prompt Token 预算从硬编码改为 `reviewpilot.prompt.budget.*` 配置项，演示长 PR 时不需重编。
+**PR#9 强化**：针对评测反馈"能找代码层 bug 但抓不住异常语义改变 / 应在根因层修复 / 偶尔会报 NPE 假阳性"等资深 Reviewer 视角问题，做了五项强化：① 在 Prompt 里加"语义/异常/契约改变 checklist"和"HIGH/MEDIUM/LOW 评级标尺"，明确要求行为/语义被改变 → HIGH；② 新增 `ExceptionSwallowingRule` 检测 `catch X → throw new Y` 的类型洗白；③ Prompt Token 预算从硬编码改为 `reviewpilot.prompt.budget.*` 配置项，演示长 PR 时不需重编；④ NPE 标注前先扫 Context 块的 null 守卫，避免假阳性；⑤ Cause-inference fragility 守卫，让模型质疑"凭什么这个异常类型一定对应作者期望的那一个原因"，引导根因层修复建议。
 
 ## 本地启动
 
