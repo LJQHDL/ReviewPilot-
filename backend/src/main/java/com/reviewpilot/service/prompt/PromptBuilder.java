@@ -60,6 +60,23 @@ public class PromptBuilder {
                 - You may receive 'Pre-detected risks' and 'Context' blocks per file.
                   Treat the pre-detected risks as authoritative starting points; you should
                   re-state them in your output (with file/line) and add deeper findings on top.
+
+                Behavior-change checklist — apply to EVERY catch/throw/return-type/signature
+                change in the diff. Any 'yes' must produce a risk item:
+                  1. Does the change swallow or transform an exception type that callers
+                     could previously distinguish (e.g. catching IllegalArgumentException
+                     and re-throwing as a generic SerializationException)?
+                  2. Is the catch clause too broad (Exception / Throwable / RuntimeException)
+                     when only one specific cause is being handled?
+                  3. Does a re-thrown exception drop the original cause chain
+                     (`new X(msg)` instead of `new X(msg, e)`)?
+                  4. After the change, can a caller still tell apart "bad input",
+                     "external service failed", and "internal bug"? If not, this is a
+                     semantic regression even when no test breaks.
+                Don't ask whether the symptom is fixed. Ask whether the FIX BELONGS HERE —
+                if the real bug lives in a deeper layer (validator, codec, config),
+                a catch-and-translate at this layer is a band-aid, not a fix. Surface that
+                in suggestions explicitly.
                 """;
     }
 

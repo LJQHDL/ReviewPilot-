@@ -133,6 +133,19 @@ class PromptBuilderTest {
         assertFalse(out.contains("### FILE: F19.java"), "last file should have been dropped");
     }
 
+    @Test
+    void system_prompt_includes_behavior_change_checklist() {
+        // Lock the PR#9 prompt strengthening: a future edit must not silently
+        // drop the semantic-change guidance that's the whole point of c1+c2.
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("Behavior-change checklist"),
+                "system prompt must keep the behavior-change checklist header");
+        assertTrue(sys.contains("swallow or transform an exception type"),
+                "system prompt must keep the exception-swallow question");
+        assertTrue(sys.contains("FIX BELONGS HERE"),
+                "system prompt must keep the root-cause prompt");
+    }
+
     private static FileChange file(String name, String patch) {
         return new FileChange(name, "modified", 1, 0, false, patch, List.of());
     }
