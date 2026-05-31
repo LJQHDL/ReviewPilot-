@@ -2,9 +2,11 @@
 
 > AI PR Review 助手 — 输入一个 GitHub PR URL，自动拉取变更、识别风险点、按文件类型生成有上下文的 Review 建议。
 
-当前阶段：**PR#3 接入 DeepSeek 完成 MVP 主链路（Day1 完成）**。后端能调 GitHub API 拿到 PR 全部变更，调 DeepSeek 拿到结构化 Review 结果。前端骨架页可调通后端健康检查，结果展示页将在 PR#7 完成。
+## 当前阶段
 
----
+**Day 3 进行中（PR#7 已合并到 main）**。后端 7 阶段 Pipeline 完整可用，前端可输入 PR URL → 加载 → 渲染 Summary / Risks / Suggestions / Meta；规则风险检测 5 条 + 模型生成的 AI Risk 已合并去重。
+
+测试：`mvn test` → 96/96 通过；`vite build` 成功。
 
 ## 目录结构
 
@@ -13,29 +15,40 @@ reviewpilot/
 ├── backend/            Spring Boot 3 服务（Java 17）
 ├── frontend/           Vue3 + Vite + Element Plus 极简前端
 ├── docs/
+│   ├── architecture.md  Pipeline 架构图（ASCII / Mermaid）
+│   ├── prompt-strategy.md  Prompt 设计与 Token 策略
 │   └── requirements/   比赛题目与计划原始文档（参考）
 ├── .gitignore
 └── README.md
 ```
 
-## 后端架构（PR#3 已落地的部分）
+## 系统架构
+
+输入是一个 GitHub PR URL，后端按 7 个阶段处理后调一次 LLM，输出结构化 Review。前端只渲染结果。
 
 ```
-HTTP /api/review { prUrl }
+HTTP POST /api/review { prUrl }
         │
         ▼
-ReviewController
-        │
-        ▼
-ReviewPipeline ───────── orchestrator
-   ├── GithubPrFetcher   (调 GitHub /pulls/{n}/files，per_page=100)
-   ├── DiffParser        (自实现 unified diff，行级标注 oldLine/newLine)
-   ├── PromptBuilder     (PR#6 升级为分文件类型模板)
-   └── ModelProvider     (抽象，可换 Claude/OpenAI/Ollama)
-            └── DeepSeekProvider (本期实现，OpenAI-compatible /v1/chat/completions)
+┌─────────────────────────────────────┐
+│         ReviewPipeline              │
+│                                     │
+│  1. GithubPrFetcher                 │  GET /pulls/{n}/files
+│  2. DiffParser                      │  自实现 unified diff，行级 oldLine/newLine
+│  3. FileClassifier   (PR#4)         │  CONTROLLER/SERVICE/CONFIG/SQL/TEST/OTHER
+│  4. RiskDetector     (PR#5)         │  5 条规则，纯启发式 patch-only，仅扫 ADDED 行
+│  5. ContextLoader    (PR#6)         │  hunk ±3 行已含上下文，按命中行切片
+│  6. PromptBuilder    (PR#6)         │  按 FileType 分流模板 + 总 Token 预算
+│  7. ModelProvider                   │  抽象层，本期实现 DeepSeekProvider
+│                                     │
+│  Risks 合并：rule + AI 按 (file,line,message) 去重，rule 优先
+└─────────────────────────────────────┘
 ```
 
-PR#4-#6 会在 fetch 与 prompt 之间插入 FileClassifier / RiskDetector / ContextLoader。
+完整带 Mermaid 图与各阶段输入输出示例：见 [`docs/architecture.md`](docs/architecture.md)。
+Prompt 模板与 Token 策略：见 [`docs/prompt-strategy.md`](docs/prompt-strategy.md)。
+
+**核心工程亮点**：不一次性把整团 diff 扔给 LLM，而是先做规则风险检测 → 上下文增强 → 按文件类型分流 Prompt → AI 分析。这让规则层稳定命中已知模式（不依赖 LLM 心情），LLM 专注做规则抓不到的语义/架构层判断。
 
 ## 本地启动
 
@@ -71,7 +84,17 @@ npm run dev
 # 浏览器打开 http://localhost:5173
 ```
 
-前端通过 Vite 代理把 `/api/*` 转发到后端 `localhost:8080`，无需额外 CORS 配置。
+dev 模式下前端通过 Vite 代理把 `/api/*` 转发到后端 `localhost:8080`。生产/演示场景前端 `dist` 起静态站点直连后端时，靠后端 `WebCorsConfig` 的 CORS 白名单（默认 `localhost:5173`）放行。
+
+### 3. 端到端最小用例
+
+打开浏览器 http://localhost:5173，输入：
+
+```
+https://github.com/octocat/Hello-World/pull/1
+```
+
+点 **Analyze**，几秒后看到三段：Summary（变更总结）/ Risks（彩色等级 + 文件:行号 + 描述）/ Suggestions（按文件分组）。
 
 ## 接口
 
@@ -101,9 +124,11 @@ curl -X POST http://localhost:8080/api/review \
   "summary": "...",
   "risks":       [{"level":"HIGH|MEDIUM|LOW","file":"...","line":42,"message":"..."}],
   "suggestions": [{"file":"...","line":42,"message":"..."}],
-  "meta": {"provider":"deepseek","filesAnalyzed":3,"elapsedMs":4823}
+  "meta": {"provider":"deepseek","model":"deepseek-chat","filesAnalyzed":3,"elapsedMs":4823}
 }
 ```
+
+`risks` 同时包含规则命中（来自 RiskDetector）和模型识别（来自 DeepSeek），按 `(file, line, message)` 去重，规则结果优先。
 
 错误码：`400` 非法 PR URL；`404` PR 私有/不存在；`401` GitHub 鉴权失败 或 DeepSeek key 未配置；`502` DeepSeek 调用本身失败。
 
@@ -119,24 +144,25 @@ curl -X POST http://localhost:8080/api/review \
 
 如不慎泄露：立刻去 [DeepSeek 控制台](https://platform.deepseek.com/) 撤销该 key，再重新生成；GitHub token 在 [Settings/Developer settings/Personal access tokens](https://github.com/settings/tokens) 撤销。
 
-## 后续路线
+## 开发路线
 
 - ✅ PR#1 项目骨架
 - ✅ PR#2 GitHub PR 抓取与 Diff 解析
 - ✅ PR#3 接入 DeepSeek 完成 MVP 主链路
-- PR#4 FileClassifier 文件类型识别
-- PR#5 RiskDetector 规则风险检测（核心亮点）
-- PR#6 ContextLoader + 分流 PromptBuilder（核心亮点）
-- PR#7 Vue3 极简前端结果页
-- PR#8 README、架构图、Prompt 策略说明
-- PR#9 演示打磨与 bugfix
+- ✅ PR#4 FileClassifier 文件类型识别
+- ✅ PR#5 RiskDetector 规则风险检测（核心亮点）
+- ✅ PR#6 ContextLoader + 分流 PromptBuilder（核心亮点）
+- ✅ PR#7 Vue3 极简前端
+- 🚧 PR#8 README、架构图、Prompt 策略说明（本 PR）
+- ⏳ PR#9 Prompt/规则强化 + 演示打磨
 
 ## 第三方依赖
 
 | 模块 | 依赖 | 用途 |
 |---|---|---|
 | 后端 | Spring Boot 3.3.4 (`spring-boot-starter-web`, `spring-boot-starter-webflux`) | REST + WebClient |
-| 后端 | Lombok | 样板代码 |
+| 后端 | Lombok（optional） | 样板代码 |
+| 后端 (test) | `spring-boot-starter-test`（含 JUnit 5 + Mockito + MockMvc） | 单测主框架 |
 | 后端 (test) | `okhttp3:mockwebserver 4.12.0` | GithubPrFetcher / DeepSeekProvider 真起 HTTP 服务的契约测试 |
 | 前端 | Vue 3.5 | 框架 |
 | 前端 | Vite 5 + `@vitejs/plugin-vue` | 构建 / 开发服务器 |
