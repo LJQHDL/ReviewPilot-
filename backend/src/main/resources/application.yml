@@ -13,6 +13,9 @@ logging:
     com.reviewpilot: DEBUG
 
 reviewpilot:
+  web:
+    cors:
+      allowed-origins: http://localhost:5173,http://127.0.0.1:5173
   github:
     api-base: https://api.github.com
     token: ${GITHUB_TOKEN:}
