@@ -2,11 +2,6 @@
 
 > AI PR Review 助手 — 输入一个 GitHub PR URL，自动拉取变更、识别风险点、按文件类型生成有上下文的 Review 建议。
 
-## 当前阶段
-
-**Day 3 收尾（PR#9 进行中）**。后端 7 阶段 Pipeline 完整可用，前端可输入 PR URL → 加载 → 渲染 Summary / Risks / Suggestions / Meta。规则风险检测 6 条 + AI risks 合并去重；Prompt 含语义/异常 checklist + HIGH/MEDIUM/LOW 评级标尺；预算阈值可走配置而非硬编码。
-
-测试：`mvn test` → 109/109 通过；`vite build` 成功。
 
 ## 目录结构
 
