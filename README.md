@@ -2,6 +2,8 @@
 
 > AI PR Review 助手 — 输入一个 GitHub PR URL，自动拉取变更、识别风险点、按文件类型生成有上下文的 Review 建议。
 
+##  视频地址
+【5月31日 (1)-哔哩哔哩】 https://b23.tv/v4wC0Gg
 
 ## 目录结构
 
