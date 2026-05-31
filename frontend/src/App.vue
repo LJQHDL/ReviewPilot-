@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { review } from './api/review.js'
+import ResultPanel from './components/ResultPanel.vue'
 
 const prUrl = ref('')
 const result = ref(null)
@@ -36,7 +37,7 @@ async function analyze() {
       </el-card>
 
       <el-card v-if="result" style="margin-top: 16px;">
-        <pre style="margin: 0; white-space: pre-wrap; word-break: break-word;">{{ JSON.stringify(result, null, 2) }}</pre>
+        <ResultPanel :result="result" />
       </el-card>
     </el-main>
   </el-container>
