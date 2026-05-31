@@ -173,3 +173,22 @@ curl -X POST http://localhost:8080/api/review \
 
 - **GitHub REST API** v2022-11-28，调 `GET /repos/{owner}/{repo}/pulls/{n}/files`
 - **DeepSeek Chat Completions API**（OpenAI 兼容），调 `POST /v1/chat/completions`，模型 `deepseek-chat`
+
+## 原创范围声明
+
+下列内容均为本仓库自实现，未从外部 AI Review / Codereview 项目复制：
+
+| 模块 | 实现细节 |
+|---|---|
+| `DiffParser` | 自写 unified diff 解析器，行级标注 `oldLine/newLine/type`，未引入 `java-diff-utils` |
+| `FileClassifier` | 6 类启发式分类（路径优先 → test 标记 → SQL 后缀 → Spring config 文件 → Java 注解扫描 → 文件名后缀回落），无外部规则库 |
+| `RiskDetector` + 5 条规则 | SPI 接口 + 各自 `@Component`，patch-only 启发式，单条异常隔离不阻塞 |
+| `ContextLoader` | 仅依赖 `DiffHunk` 自带 ±3 行 context，不调 GitHub raw API |
+| `PromptTemplate` 6 条 guidance | 按文件类型手写的 review 关键词清单 |
+| `PromptBuilder` 分组+预算 | 6k/file + 60k/total 双重护栏 + 显式截断标记 |
+| `ReviewPipeline.parseModelReply` | 抗前导/尾随文字的 `extractJsonObject`；rule + AI risks 按 `(file,line,message)` 去重，rule 优先 |
+| 前端 `ResultPanel/RiskList/SuggestionList` | 自写 Vue3 组件，仅依赖 Element Plus 标签/卡片基础组件 |
+
+第三方服务（GitHub API / DeepSeek API）只用其公开 REST 接口；调用客户端、错误处理、重试与日志策略均自实现。
+
+未复用任何旧个人项目代码。
