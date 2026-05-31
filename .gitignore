@@ -41,3 +41,12 @@ application-local.properties
 # --- Large reference assets (not part of source) ---
 docs/requirements/Java开发手册（嵩山版）.pdf
 *.pdf
+
+# --- Demo recordings & scripts (host externally, link from README) ---
+# Videos exceed GitHub's 100MB single-file limit and slow down clones; the
+# demo script is an author-side cue card, not a deliverable.
+*.mp4
+*.mov
+*.webm
+*.mkv
+docs/demo-script.md

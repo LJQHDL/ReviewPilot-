@@ -4,6 +4,7 @@ import com.reviewpilot.model.RiskItem;
 import com.reviewpilot.service.classifier.FileType;
 import com.reviewpilot.service.context.ContextSlice;
 import com.reviewpilot.service.diff.FileChange;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -23,20 +24,37 @@ import java.util.Map;
  * concerns, but a single AI call for the whole PR is cheaper and produces a
  * more coherent summary than splitting per file. Grouping is the compromise.
  *
- * <p>Total prompt size stays bounded by {@link #MAX_TOTAL_CHARS}; once the
+ * <p>Total prompt size stays bounded by the configured total cap; once the
  * budget is hit the remaining files are dropped with an explicit truncation
- * marker. Per-file patches are independently capped at
- * {@link #MAX_PATCH_CHARS_PER_FILE} so a single huge file can't starve the
- * others.
+ * marker. Per-file patches are independently capped so a single huge file
+ * can't starve the others. Both caps are configurable via
+ * {@code reviewpilot.prompt.budget.*} so the demo / evaluator can adjust them
+ * without recompiling.
  */
 @Component
 public class PromptBuilder {
 
-    /** Max characters of patch per file we include in the user prompt. */
-    private static final int MAX_PATCH_CHARS_PER_FILE = 6_000;
+    /** Default per-file patch character cap. */
+    static final int DEFAULT_MAX_PATCH_CHARS_PER_FILE = 6_000;
 
-    /** Hard cap on total prompt size to stay well under the model's input budget. */
-    private static final int MAX_TOTAL_CHARS = 60_000;
+    /** Default total prompt character cap (≈ 16k tokens at ~4 chars/token). */
+    static final int DEFAULT_MAX_TOTAL_CHARS = 60_000;
+
+    private final int maxPatchCharsPerFile;
+    private final int maxTotalChars;
+
+    public PromptBuilder() {
+        this(DEFAULT_MAX_PATCH_CHARS_PER_FILE, DEFAULT_MAX_TOTAL_CHARS);
+    }
+
+    public PromptBuilder(
+            @Value("${reviewpilot.prompt.budget.max-patch-chars-per-file:" + DEFAULT_MAX_PATCH_CHARS_PER_FILE + "}") int maxPatchCharsPerFile,
+            @Value("${reviewpilot.prompt.budget.max-total-chars:" + DEFAULT_MAX_TOTAL_CHARS + "}") int maxTotalChars) {
+        if (maxPatchCharsPerFile <= 0) throw new IllegalArgumentException("max-patch-chars-per-file must be > 0");
+        if (maxTotalChars <= 0) throw new IllegalArgumentException("max-total-chars must be > 0");
+        this.maxPatchCharsPerFile = maxPatchCharsPerFile;
+        this.maxTotalChars = maxTotalChars;
+    }
 
     public String systemPrompt() {
         return """
@@ -60,6 +78,69 @@ public class PromptBuilder {
                 - You may receive 'Pre-detected risks' and 'Context' blocks per file.
                   Treat the pre-detected risks as authoritative starting points; you should
                   re-state them in your output (with file/line) and add deeper findings on top.
+
+                Behavior-change checklist — apply to EVERY catch/throw/return-type/signature
+                change in the diff. Any 'yes' must produce a risk item:
+                  1. Does the change swallow or transform an exception type that callers
+                     could previously distinguish (e.g. catching IllegalArgumentException
+                     and re-throwing as a generic SerializationException)?
+                  2. Is the catch clause too broad (Exception / Throwable / RuntimeException)
+                     when only one specific cause is being handled?
+                  3. Does a re-thrown exception drop the original cause chain
+                     (`new X(msg)` instead of `new X(msg, e)`)?
+                  4. After the change, can a caller still tell apart "bad input",
+                     "external service failed", and "internal bug"? If not, this is a
+                     semantic regression even when no test breaks.
+                Don't ask whether the symptom is fixed. Ask whether the FIX BELONGS HERE —
+                if the real bug lives in a deeper layer (validator, codec, config),
+                a catch-and-translate at this layer is a band-aid, not a fix. Surface that
+                in suggestions explicitly.
+
+                Severity rubric — apply strictly when assigning level:
+                  HIGH:   behavior or semantics is changed (an exception type is swallowed
+                          or transformed, error mode collapses, concurrency invariant
+                          weakens, schema/contract breaks); data corruption is plausible;
+                          the failure mode is harder to debug after the change than before.
+                  MEDIUM: behavior is preserved but the change introduces foot-guns —
+                          unclear naming, fragile patterns, unhandled rare cases,
+                          maintainability hits.
+                  LOW:    style, nit, comment / formatting; no functional impact.
+                A "behavior or semantics is changed" finding from the checklist above must
+                be HIGH, not MEDIUM. Do not soften ratings to be polite.
+
+                NPE risk — be context-aware before flagging:
+                Pattern matches like `a.b().c()` or repeated `.getCause()` chains are
+                NOT automatically NPE risks. Before raising one, check the 'Context'
+                block above the patch for an existing guard:
+                  - explicit `if (x == null)` / `!= null` checks
+                  - `Objects.requireNonNull(x)` / `Optional.ofNullable(x)`
+                  - early return / throw on the null path
+                  - ternary `x == null ? ... : x.foo()`
+                If a guard is present in the visible context, do NOT emit an NPE finding.
+                If the relevant context wasn't included (you only see the diff), say so
+                explicitly in the message ("no visible null guard in context") and rate
+                LOW rather than MEDIUM. False-positive NPE warnings burn reviewer trust.
+
+                Cause-inference fragility — for any code that REASONS about an exception's
+                semantic meaning from its TYPE alone, flag it. Patterns to look for:
+                  - `catch (FooException e)` then translating to a different domain error
+                  - `instanceof FooException` to decide a downstream branch
+                  - walking `getCause()` chains looking for a specific type
+                  - `findCause(t, FooException.class)` or equivalent helpers
+                The fragility is this: the code assumes "FooException at this site means
+                the ONE specific cause I have in mind" — but the same exception type
+                often arises from unrelated causes inside the called API
+                (e.g. IllegalArgumentException can mean bad input, an internal codec bug,
+                a buffer-state error, or a config drift; not just "non-Serializable").
+                Whenever you see this pattern:
+                  1. Ask whether the type-to-cause mapping is documented as 1:1 by the
+                     called API. If not, flag at MEDIUM minimum (HIGH if the wrong
+                     classification produces a misleading user-visible error message).
+                  2. Suggest validating the actual condition at its source (e.g. check
+                     Serializable explicitly at the class-check site) rather than
+                     inferring it from a downstream exception type. This is the
+                     "fix at the symptom vs fix at the root" question, applied to
+                     exception classification.
                 """;
     }
 
@@ -96,7 +177,7 @@ public class PromptBuilder {
         boolean truncated = false;
         for (Map.Entry<FileType, List<FileChange>> e : byType.entrySet()) {
             String groupHeader = "## Group: " + e.getKey() + "\n" + PromptTemplate.forType(e.getKey()).guidance() + "\n";
-            if (sb.length() + groupHeader.length() > MAX_TOTAL_CHARS) {
+            if (sb.length() + groupHeader.length() > maxTotalChars) {
                 truncated = true;
                 break;
             }
@@ -104,7 +185,7 @@ public class PromptBuilder {
 
             for (FileChange f : e.getValue()) {
                 String section = renderFile(f, risksByFile.get(f.filename()), contextsByFile.get(f.filename()));
-                if (sb.length() + section.length() + 32 > MAX_TOTAL_CHARS) {
+                if (sb.length() + section.length() + 32 > maxTotalChars) {
                     truncated = true;
                     break;
                 }
@@ -118,7 +199,7 @@ public class PromptBuilder {
         return sb.toString();
     }
 
-    private static String renderFile(FileChange f, List<RiskItem> risks, List<ContextSlice> contexts) {
+    private String renderFile(FileChange f, List<RiskItem> risks, List<ContextSlice> contexts) {
         StringBuilder s = new StringBuilder(2048);
         s.append("### FILE: ").append(f.filename())
                 .append(" (").append(f.status())
@@ -147,7 +228,7 @@ public class PromptBuilder {
         if (f.binary() || f.patch() == null) {
             s.append("(binary or no patch)\n");
         } else {
-            s.append(truncate(f.patch(), MAX_PATCH_CHARS_PER_FILE));
+            s.append(truncate(f.patch(), maxPatchCharsPerFile));
         }
         s.append('\n');
         return s.toString();

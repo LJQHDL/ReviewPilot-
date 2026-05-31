@@ -41,7 +41,7 @@ flowchart TD
 
 ## 规则风险检测（RiskDetector）
 
-5 条 `@Component` 规则，加规则只需丢一个 `@Component`，无中央注册表：
+6 条 `@Component` 规则，加规则只需丢一个 `@Component`，无中央注册表：
 
 ```
 service/risk/
@@ -50,7 +50,8 @@ service/risk/
 └── rules/
     ├── UnreleasedLockRule.java         lock() 未配 finally{ unlock() }
     ├── NestedTransactionRule.java      @Transactional 方法内调本类另一个 @Transactional
-    ├── BareCatchRule.java              catch (Exception) {} 空块
+    ├── BareCatchRule.java              catch (Exception) {} 空块（静默吞噬）
+    ├── ExceptionSwallowingRule.java    catch X -> throw new Y 类型洗白（PR#9 加，HIGH/MEDIUM）
     ├── SqlConcatenationRule.java       String SQL = "..." + var + "..."
     └── SystemOutPrintlnRule.java       System.out.println 出现在生产代码
 ```

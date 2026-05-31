@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-**Day 3 进行中（PR#7 已合并到 main）**。后端 7 阶段 Pipeline 完整可用，前端可输入 PR URL → 加载 → 渲染 Summary / Risks / Suggestions / Meta；规则风险检测 5 条 + 模型生成的 AI Risk 已合并去重。
+**Day 3 收尾（PR#9 进行中）**。后端 7 阶段 Pipeline 完整可用，前端可输入 PR URL → 加载 → 渲染 Summary / Risks / Suggestions / Meta。规则风险检测 6 条 + AI risks 合并去重；Prompt 含语义/异常 checklist + HIGH/MEDIUM/LOW 评级标尺；预算阈值可走配置而非硬编码。
 
-测试：`mvn test` → 96/96 通过；`vite build` 成功。
+测试：`mvn test` → 109/109 通过；`vite build` 成功。
 
 ## 目录结构
 
@@ -36,9 +36,9 @@ HTTP POST /api/review { prUrl }
 │  1. GithubPrFetcher                 │  GET /pulls/{n}/files
 │  2. DiffParser                      │  自实现 unified diff，行级 oldLine/newLine
 │  3. FileClassifier   (PR#4)         │  CONTROLLER/SERVICE/CONFIG/SQL/TEST/OTHER
-│  4. RiskDetector     (PR#5)         │  5 条规则，纯启发式 patch-only，仅扫 ADDED 行
+│  4. RiskDetector     (PR#5, +PR#9)  │  6 条规则，纯启发式 patch-only，仅扫 ADDED 行
 │  5. ContextLoader    (PR#6)         │  hunk ±3 行已含上下文，按命中行切片
-│  6. PromptBuilder    (PR#6)         │  按 FileType 分流模板 + 总 Token 预算
+│  6. PromptBuilder    (PR#6, +PR#9)  │  按 FileType 分流模板 + 可配置 Token 预算 + 语义/异常 checklist + 评级标尺
 │  7. ModelProvider                   │  抽象层，本期实现 DeepSeekProvider
 │                                     │
 │  Risks 合并：rule + AI 按 (file,line,message) 去重，rule 优先
@@ -49,6 +49,8 @@ HTTP POST /api/review { prUrl }
 Prompt 模板与 Token 策略：见 [`docs/prompt-strategy.md`](docs/prompt-strategy.md)。
 
 **核心工程亮点**：不一次性把整团 diff 扔给 LLM，而是先做规则风险检测 → 上下文增强 → 按文件类型分流 Prompt → AI 分析。这让规则层稳定命中已知模式（不依赖 LLM 心情），LLM 专注做规则抓不到的语义/架构层判断。
+
+**PR#9 强化**：针对评测反馈"能找代码层 bug 但抓不住异常语义改变 / 应在根因层修复 / 偶尔会报 NPE 假阳性"等资深 Reviewer 视角问题，做了五项强化：① 在 Prompt 里加"语义/异常/契约改变 checklist"和"HIGH/MEDIUM/LOW 评级标尺"，明确要求行为/语义被改变 → HIGH；② 新增 `ExceptionSwallowingRule` 检测 `catch X → throw new Y` 的类型洗白；③ Prompt Token 预算从硬编码改为 `reviewpilot.prompt.budget.*` 配置项，演示长 PR 时不需重编；④ NPE 标注前先扫 Context 块的 null 守卫，避免假阳性；⑤ Cause-inference fragility 守卫，让模型质疑"凭什么这个异常类型一定对应作者期望的那一个原因"，引导根因层修复建议。
 
 ## 本地启动
 
@@ -153,8 +155,8 @@ curl -X POST http://localhost:8080/api/review \
 - ✅ PR#5 RiskDetector 规则风险检测（核心亮点）
 - ✅ PR#6 ContextLoader + 分流 PromptBuilder（核心亮点）
 - ✅ PR#7 Vue3 极简前端
-- 🚧 PR#8 README、架构图、Prompt 策略说明（本 PR）
-- ⏳ PR#9 Prompt/规则强化 + 演示打磨
+- ✅ PR#8 README、架构图、Prompt 策略说明
+- 🚧 PR#9 Prompt/规则强化 + 演示打磨（本 PR）
 
 ## 第三方依赖
 
@@ -182,7 +184,7 @@ curl -X POST http://localhost:8080/api/review \
 |---|---|
 | `DiffParser` | 自写 unified diff 解析器，行级标注 `oldLine/newLine/type`，未引入 `java-diff-utils` |
 | `FileClassifier` | 6 类启发式分类（路径优先 → test 标记 → SQL 后缀 → Spring config 文件 → Java 注解扫描 → 文件名后缀回落），无外部规则库 |
-| `RiskDetector` + 5 条规则 | SPI 接口 + 各自 `@Component`，patch-only 启发式，单条异常隔离不阻塞 |
+| `RiskDetector` + 6 条规则 | SPI 接口 + 各自 `@Component`，patch-only 启发式，单条异常隔离不阻塞 |
 | `ContextLoader` | 仅依赖 `DiffHunk` 自带 ±3 行 context，不调 GitHub raw API |
 | `PromptTemplate` 6 条 guidance | 按文件类型手写的 review 关键词清单 |
 | `PromptBuilder` 分组+预算 | 6k/file + 60k/total 双重护栏 + 显式截断标记 |

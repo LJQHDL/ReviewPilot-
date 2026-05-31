@@ -133,6 +133,87 @@ class PromptBuilderTest {
         assertFalse(out.contains("### FILE: F19.java"), "last file should have been dropped");
     }
 
+    @Test
+    void system_prompt_includes_behavior_change_checklist() {
+        // Lock the PR#9 prompt strengthening: a future edit must not silently
+        // drop the semantic-change guidance that's the whole point of c1+c2.
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("Behavior-change checklist"),
+                "system prompt must keep the behavior-change checklist header");
+        assertTrue(sys.contains("swallow or transform an exception type"),
+                "system prompt must keep the exception-swallow question");
+        assertTrue(sys.contains("FIX BELONGS HERE"),
+                "system prompt must keep the root-cause prompt");
+    }
+
+    @Test
+    void system_prompt_includes_severity_rubric() {
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("Severity rubric"),
+                "system prompt must keep the severity rubric header");
+        assertTrue(sys.contains("must be HIGH"),
+                "rubric must enforce HIGH for behavior-change findings");
+        assertTrue(sys.contains("Do not soften ratings"),
+                "rubric must keep the explicit anti-softening reminder");
+    }
+
+    @Test
+    void system_prompt_includes_npe_context_guard() {
+        // Lock c8: NPE findings must consult the Context block before firing,
+        // to avoid the classic AI-reviewer false positive of flagging every
+        // chained call as NPE-prone without checking the surrounding null guards.
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("NPE risk"),
+                "system prompt must keep the NPE-risk guidance header");
+        assertTrue(sys.contains("Context"),
+                "guidance must direct the model to consult the Context block");
+        assertTrue(sys.contains("False-positive NPE warnings"),
+                "guidance must keep the explicit reviewer-trust framing");
+    }
+
+    @Test
+    void system_prompt_includes_cause_inference_fragility() {
+        // Lock c9: when code infers a semantic cause purely from an exception
+        // TYPE (catch / instanceof / findCause), the model must question the
+        // 1:1 mapping — same type can arise from multiple unrelated causes.
+        // This is the deeper version of the exception-swallowing concern:
+        // "how do you know this IllegalArgumentException means non-Serializable?"
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("Cause-inference fragility"),
+                "system prompt must keep the cause-inference fragility header");
+        assertTrue(sys.contains("type-to-cause mapping"),
+                "guidance must spell out the 1:1 mapping question");
+        assertTrue(sys.contains("validating the actual condition at its source"),
+                "guidance must steer model toward fix-at-root suggestions");
+    }
+
+    @Test
+    void custom_budget_truncates_at_lower_limit() {
+        // Demo / evaluator path: bump down the per-file cap to 200 chars and
+        // confirm a 1k-char patch trips the truncation marker. Lock the new
+        // configurability so a regression that hard-codes the limits is caught.
+        PromptBuilder small = new PromptBuilder(200, 5_000);
+        FileChange f = file("Big.java", "@@\n" + "x".repeat(1_000));
+
+        String out = small.build(List.of(f), Map.of("Big.java", FileType.OTHER),
+                List.of(), List.of());
+
+        assertTrue(out.contains("[...truncated"),
+                "custom per-file cap must still emit truncation marker");
+        assertFalse(out.contains("x".repeat(1_000)),
+                "patch larger than custom cap must not appear in full");
+    }
+
+    @Test
+    void invalid_budget_rejected_at_construction() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new PromptBuilder(0, 1_000),
+                "zero per-file cap should be rejected");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new PromptBuilder(1_000, -1),
+                "negative total cap should be rejected");
+    }
+
     private static FileChange file(String name, String patch) {
         return new FileChange(name, "modified", 1, 0, false, patch, List.of());
     }
