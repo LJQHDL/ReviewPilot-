@@ -77,6 +77,18 @@ public class PromptBuilder {
                 if the real bug lives in a deeper layer (validator, codec, config),
                 a catch-and-translate at this layer is a band-aid, not a fix. Surface that
                 in suggestions explicitly.
+
+                Severity rubric — apply strictly when assigning level:
+                  HIGH:   behavior or semantics is changed (an exception type is swallowed
+                          or transformed, error mode collapses, concurrency invariant
+                          weakens, schema/contract breaks); data corruption is plausible;
+                          the failure mode is harder to debug after the change than before.
+                  MEDIUM: behavior is preserved but the change introduces foot-guns —
+                          unclear naming, fragile patterns, unhandled rare cases,
+                          maintainability hits.
+                  LOW:    style, nit, comment / formatting; no functional impact.
+                A "behavior or semantics is changed" finding from the checklist above must
+                be HIGH, not MEDIUM. Do not soften ratings to be polite.
                 """;
     }
 

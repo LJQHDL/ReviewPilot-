@@ -146,6 +146,17 @@ class PromptBuilderTest {
                 "system prompt must keep the root-cause prompt");
     }
 
+    @Test
+    void system_prompt_includes_severity_rubric() {
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("Severity rubric"),
+                "system prompt must keep the severity rubric header");
+        assertTrue(sys.contains("must be HIGH"),
+                "rubric must enforce HIGH for behavior-change findings");
+        assertTrue(sys.contains("Do not soften ratings"),
+                "rubric must keep the explicit anti-softening reminder");
+    }
+
     private static FileChange file(String name, String patch) {
         return new FileChange(name, "modified", 1, 0, false, patch, List.of());
     }
