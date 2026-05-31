@@ -16,6 +16,13 @@ reviewpilot:
   web:
     cors:
       allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+  prompt:
+    budget:
+      # Per-file patch character cap (~1.5k tokens at 4 chars/token).
+      max-patch-chars-per-file: 6000
+      # Total prompt character cap (~16k tokens). Leave room for system prompt
+      # + model output (max-tokens below). Bump for very long PRs.
+      max-total-chars: 60000
   github:
     api-base: https://api.github.com
     token: ${GITHUB_TOKEN:}

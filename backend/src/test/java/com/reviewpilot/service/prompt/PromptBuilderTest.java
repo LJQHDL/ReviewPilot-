@@ -157,6 +157,33 @@ class PromptBuilderTest {
                 "rubric must keep the explicit anti-softening reminder");
     }
 
+    @Test
+    void custom_budget_truncates_at_lower_limit() {
+        // Demo / evaluator path: bump down the per-file cap to 200 chars and
+        // confirm a 1k-char patch trips the truncation marker. Lock the new
+        // configurability so a regression that hard-codes the limits is caught.
+        PromptBuilder small = new PromptBuilder(200, 5_000);
+        FileChange f = file("Big.java", "@@\n" + "x".repeat(1_000));
+
+        String out = small.build(List.of(f), Map.of("Big.java", FileType.OTHER),
+                List.of(), List.of());
+
+        assertTrue(out.contains("[...truncated"),
+                "custom per-file cap must still emit truncation marker");
+        assertFalse(out.contains("x".repeat(1_000)),
+                "patch larger than custom cap must not appear in full");
+    }
+
+    @Test
+    void invalid_budget_rejected_at_construction() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new PromptBuilder(0, 1_000),
+                "zero per-file cap should be rejected");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new PromptBuilder(1_000, -1),
+                "negative total cap should be rejected");
+    }
+
     private static FileChange file(String name, String patch) {
         return new FileChange(name, "modified", 1, 0, false, patch, List.of());
     }
