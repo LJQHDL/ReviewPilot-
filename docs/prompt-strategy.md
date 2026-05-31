@@ -133,11 +133,13 @@ LLM 的输入有限（DeepSeek `deepseek-chat` 约 64K tokens 输入），且越
 
 ## PR#9 已落地的强化
 
-针对评测反馈，PR#9 落地了三项强化：
+针对评测反馈，PR#9 落地了五项强化：
 
 1. **PromptBuilder.systemPrompt() 加"Behavior-change checklist"**：对每处 catch/throw 改动追问 4 题（异常类型被吞 / catch 范围过宽 / cause 链丢失 / 调用方丢失区分能力），任一命中必须出 risk。同时引导模型反思"修复是否在正确层"——根因若在更深层，本层 catch-and-translate 是创可贴而非修复。
 2. **PromptBuilder.systemPrompt() 加 "Severity rubric"**：明确 HIGH = 行为/语义改变（异常被吞或转换、错误模式坍塌、并发不变式弱化、契约破坏），明确"行为变化 → HIGH，不要为了客气降级"。
 3. **新增 `ExceptionSwallowingRule`（service/risk/rules/）**：检测 `catch X → throw new Y` 链路。Y 不传 X 作 cause → HIGH（stack trace 永久丢失）；传 cause → MEDIUM（链路在但语义被重新映射）。规则与 `BareCatchRule` 互补，后者抓静默吞噬，本规则抓"看似处理实则吞掉真实类型"。
+4. **PromptBuilder.systemPrompt() 加 "NPE risk—context-aware"**：标注 NPE 前先扫 Context 块的 null 守卫（`if (x != null)` / `Objects.requireNonNull` / `Optional` / 三元守卫）。命中守卫 → 不报；无 Context → 降为 LOW + 明确写"no visible null guard in context"。理由：假阳性 NPE 警告会快速烧掉 reviewer 对系统的信任。
+5. **PromptBuilder.systemPrompt() 加 "Cause-inference fragility"**：检测四种从异常类型反推语义的模式（`catch X` / `instanceof X` / 走 `getCause()` 链 / `findCause(_, X.class)`），让模型显式问"调用 API 是否承诺 X→cause 1:1 映射"。不承诺则至少 MEDIUM；分类错误产生误导用户消息则 HIGH。引导建议至根因层显式判断，对应评测里 Maintainer 一眼识破的 Dubbo Serializable 案例。
 
 PromptBuilder 的 token 预算在 PR#9 也从硬编码升级为可配置：`reviewpilot.prompt.budget.max-patch-chars-per-file`（默认 6000）和 `reviewpilot.prompt.budget.max-total-chars`（默认 60000）。演示遇到长 PR 时直接调 application.yml 即可，不需重编。
 
