@@ -172,6 +172,22 @@ class PromptBuilderTest {
     }
 
     @Test
+    void system_prompt_includes_cause_inference_fragility() {
+        // Lock c9: when code infers a semantic cause purely from an exception
+        // TYPE (catch / instanceof / findCause), the model must question the
+        // 1:1 mapping — same type can arise from multiple unrelated causes.
+        // This is the deeper version of the exception-swallowing concern:
+        // "how do you know this IllegalArgumentException means non-Serializable?"
+        String sys = builder.systemPrompt();
+        assertTrue(sys.contains("Cause-inference fragility"),
+                "system prompt must keep the cause-inference fragility header");
+        assertTrue(sys.contains("type-to-cause mapping"),
+                "guidance must spell out the 1:1 mapping question");
+        assertTrue(sys.contains("validating the actual condition at its source"),
+                "guidance must steer model toward fix-at-root suggestions");
+    }
+
+    @Test
     void custom_budget_truncates_at_lower_limit() {
         // Demo / evaluator path: bump down the per-file cap to 200 chars and
         // confirm a 1k-char patch trips the truncation marker. Lock the new

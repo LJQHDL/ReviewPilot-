@@ -120,6 +120,27 @@ public class PromptBuilder {
                 If the relevant context wasn't included (you only see the diff), say so
                 explicitly in the message ("no visible null guard in context") and rate
                 LOW rather than MEDIUM. False-positive NPE warnings burn reviewer trust.
+
+                Cause-inference fragility — for any code that REASONS about an exception's
+                semantic meaning from its TYPE alone, flag it. Patterns to look for:
+                  - `catch (FooException e)` then translating to a different domain error
+                  - `instanceof FooException` to decide a downstream branch
+                  - walking `getCause()` chains looking for a specific type
+                  - `findCause(t, FooException.class)` or equivalent helpers
+                The fragility is this: the code assumes "FooException at this site means
+                the ONE specific cause I have in mind" — but the same exception type
+                often arises from unrelated causes inside the called API
+                (e.g. IllegalArgumentException can mean bad input, an internal codec bug,
+                a buffer-state error, or a config drift; not just "non-Serializable").
+                Whenever you see this pattern:
+                  1. Ask whether the type-to-cause mapping is documented as 1:1 by the
+                     called API. If not, flag at MEDIUM minimum (HIGH if the wrong
+                     classification produces a misleading user-visible error message).
+                  2. Suggest validating the actual condition at its source (e.g. check
+                     Serializable explicitly at the class-check site) rather than
+                     inferring it from a downstream exception type. This is the
+                     "fix at the symptom vs fix at the root" question, applied to
+                     exception classification.
                 """;
     }
 
