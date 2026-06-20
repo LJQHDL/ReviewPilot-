@@ -6,7 +6,10 @@
 
 **V3 ReAct Agent 已完成**。LLM 从单次调用升级为 ReAct（Reasoning + Acting）自主循环——Agent 可以调用 `fetch_file_content` 和 `search_repo` 两个工具获取更多上下文，最多 8 轮、4 次工具调用后收敛。Critic Agent 对输出做 5 维质检（HALLUCINATION / MISSING / SEVERITY / DUPLICATE / CONSISTENCY），发现问题自动触发修订。9 条风险规则、前端 Vite 构建均可用。
 
-测试：`mvn test` → 现有测试全部通过；`vite build` 成功。
+测试：`mvn test` → 147/147 通过；`vite build` 成功。
+
+## 视频演示
+【5月31日 (1)-哔哩哔哩】 https://b23.tv/v4wC0Gg
 
 ## 目录结构
 

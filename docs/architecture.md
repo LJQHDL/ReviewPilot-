@@ -43,15 +43,15 @@ flowchart TD
 
 ## 各阶段输入输出
 
-| # | Stage | 输入 | 输出 | 实现 PR |
-|---|---|---|---|---|
-| 1 | GithubPrFetcher | `PrUrl(owner, repo, number)` | `List<GithubPrFile>` | PR#2 |
-| 2 | DiffParser | `String patch` | `List<DiffHunk>` 含 `oldLine/newLine/type` 行级标注 | PR#2 |
-| 3 | FileClassifier | `GithubPrFile + 解析后 patch` | `FileType` ∈ {CONTROLLER, SERVICE, CONFIG, SQL, TEST, OTHER} | PR#4 |
-| 4 | RiskDetector | `FileChange + FileType` | `List<RiskItem>` (规则命中) | PR#5 |
-| 5 | ContextLoader | `FileChange + 命中行号` | `ContextSlice`（hunk 内已含 ±3 行原文） | PR#6 |
-| 6 | PromptBuilder | files + classifications + risks + contexts | `String prompt`（按 FileType 分组 + 全局预算截断） | PR#3, 重写于 PR#6 |
-| 7 | ModelProvider → DeepSeekProvider | prompt | `String reply`（含 JSON）| PR#3 |
+| #    | Stage                            | 输入                                       | 输出                                                         | 实现 PR           |
+| ---- | -------------------------------- | ------------------------------------------ | ------------------------------------------------------------ | ----------------- |
+| 1    | GithubPrFetcher                  | `PrUrl(owner, repo, number)`               | `List<GithubPrFile>`                                         | PR#2              |
+| 2    | DiffParser                       | `String patch`                             | `List<DiffHunk>` 含 `oldLine/newLine/type` 行级标注          | PR#2              |
+| 3    | FileClassifier                   | `GithubPrFile + 解析后 patch`              | `FileType` ∈ {CONTROLLER, SERVICE, CONFIG, SQL, TEST, OTHER} | PR#4              |
+| 4    | RiskDetector                     | `FileChange + FileType`                    | `List<RiskItem>` (规则命中)                                  | PR#5              |
+| 5    | ContextLoader                    | `FileChange + 命中行号`                    | `ContextSlice`（hunk 内已含 ±3 行原文）                      | PR#6              |
+| 6    | PromptBuilder                    | files + classifications + risks + contexts | `String prompt`（按 FileType 分组 + 全局预算截断）           | PR#3, 重写于 PR#6 |
+| 7    | ModelProvider → DeepSeekProvider | prompt                                     | `String reply`（含 JSON）                                    | PR#3              |
 
 后处理：`ReviewPipeline.parseModelReply` 容忍前导/尾随文字，提取 `{...}` 子串解析；rule + AI risks 按 `(file, line, message)` 去重，**rule 优先**——规则结果稳定可解释，LLM 结果做语义补充。
 
@@ -78,25 +78,25 @@ service/risk/
 
 按 FileType 分组送给 LLM，每组前面挂一段 `PromptTemplate.guidance(FileType)`：
 
-| FileType | guidance 关键词 |
-|---|---|
+| FileType   | guidance 关键词                               |
+| ---------- | --------------------------------------------- |
 | CONTROLLER | 入参校验、鉴权、错误码、Idempotency、统一返回 |
-| SERVICE | 事务边界、并发安全、空指针、异常传播 |
-| CONFIG | 默认值、敏感信息、Profile 隔离 |
-| SQL | 索引、注入、显式列、N+1 |
-| TEST | 断言强度、边界用例、Mock 滥用 |
-| OTHER | 通用代码质量 |
+| SERVICE    | 事务边界、并发安全、空指针、异常传播          |
+| CONFIG     | 默认值、敏感信息、Profile 隔离                |
+| SQL        | 索引、注入、显式列、N+1                       |
+| TEST       | 断言强度、边界用例、Mock 滥用                 |
+| OTHER      | 通用代码质量                                  |
 
 详细 Prompt 设计与 Token 预算策略见 [`prompt-strategy.md`](prompt-strategy.md)。
 
 ## 失败路径
 
-| 场景 | 状态码 | 来源 |
-|---|---|---|
-| 非法 PR URL | 400 | Controller `IllegalArgumentException` |
-| PR 不存在或私有 | 404 | `GithubPrNotFoundException` |
-| GitHub 401/403 | 401 | `GithubAuthException` |
-| DeepSeek key 未配 | 401 | `AiProviderException`（消息以 "DeepSeek API key is not set" 开头）|
-| DeepSeek 上游失败 | 502 | `AiProviderException`（其他）|
+| 场景              | 状态码 | 来源                                                         |
+| ----------------- | ------ | ------------------------------------------------------------ |
+| 非法 PR URL       | 400    | Controller `IllegalArgumentException`                        |
+| PR 不存在或私有   | 404    | `GithubPrNotFoundException`                                  |
+| GitHub 401/403    | 401    | `GithubAuthException`                                        |
+| DeepSeek key 未配 | 401    | `AiProviderException`（消息以 "DeepSeek API key is not set" 开头） |
+| DeepSeek 上游失败 | 502    | `AiProviderException`（其他）                                |
 
 前端 axios 拦截器把后端 `{error: "..."}` 提取成 `Error.message`，UI 用 ElMessage + el-alert 双展示，避免新请求覆盖错误信息。
