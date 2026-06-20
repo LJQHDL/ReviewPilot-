@@ -2,7 +2,13 @@
 
 > AI PR Review 助手 — 输入一个 GitHub PR URL，自动拉取变更、识别风险点、按文件类型生成有上下文的 Review 建议。
 
-##  视频地址
+## 当前阶段
+
+**V3 ReAct Agent 已完成**。LLM 从单次调用升级为 ReAct（Reasoning + Acting）自主循环——Agent 可以调用 `fetch_file_content` 和 `search_repo` 两个工具获取更多上下文，最多 8 轮、4 次工具调用后收敛。Critic Agent 对输出做 5 维质检（HALLUCINATION / MISSING / SEVERITY / DUPLICATE / CONSISTENCY），发现问题自动触发修订。9 条风险规则、前端 Vite 构建均可用。
+
+测试：`mvn test` → 147/147 通过；`vite build` 成功。
+
+## 视频演示
 【5月31日 (1)-哔哩哔哩】 https://b23.tv/v4wC0Gg
 
 ## 目录结构
@@ -21,33 +27,49 @@ reviewpilot/
 
 ## 系统架构
 
-输入是一个 GitHub PR URL，后端按 7 个阶段处理后调一次 LLM，输出结构化 Review。前端只渲染结果。
+输入是一个 GitHub PR URL，后端按 7 个阶段预处理后进入 ReAct Agent 自主循环，Critic 质检通过后输出结构化 Review。前端只渲染结果。
 
 ```
 HTTP POST /api/review { prUrl }
         │
         ▼
-┌─────────────────────────────────────┐
-│         ReviewPipeline              │
-│                                     │
-│  1. GithubPrFetcher                 │  GET /pulls/{n}/files
-│  2. DiffParser                      │  自实现 unified diff，行级 oldLine/newLine
-│  3. FileClassifier   (PR#4)         │  CONTROLLER/SERVICE/CONFIG/SQL/TEST/OTHER
-│  4. RiskDetector     (PR#5, +PR#9)  │  6 条规则，纯启发式 patch-only，仅扫 ADDED 行
-│  5. ContextLoader    (PR#6)         │  hunk ±3 行已含上下文，按命中行切片
-│  6. PromptBuilder    (PR#6, +PR#9)  │  按 FileType 分流模板 + 可配置 Token 预算 + 语义/异常 checklist + 评级标尺
-│  7. ModelProvider                   │  抽象层，本期实现 DeepSeekProvider
-│                                     │
-│  Risks 合并：rule + AI 按 (file,line,message) 去重，rule 优先
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                  ReviewPipeline                       │
+│                                                       │
+│  1. GithubPrFetcher           GET /pulls/{n}/files   │
+│  2. DiffParser                自实现 unified diff     │
+│  3. FileClassifier            6 类启发式分类          │
+│  4. RiskDetector              9 条规则，patch-only    │
+│  5. ContextLoader             hunk ±3 行切片          │
+│  6. FileContentFetcher        风险文件全量拉取         │
+│                                                       │
+│  ┌── ReAct Agent Loop (ReviewAgent) ────────────┐    │
+│  │  System Prompt + Diff → LLM decides:          │    │
+│  │    • fetch_file_content(path) 获取完整文件      │    │
+│  │    • search_repo(query)       搜索仓库         │    │
+│  │    • output final JSON                        │    │
+│  │  Max 8 rounds, converges after 4 tool calls   │    │
+│  └──────────────────────────────────────────────┘    │
+│                                                       │
+│  ┌── Reflection Loop (ReflectionOrchestrator) ───┐   │
+│  │  CriticAgent 5-dim QA → issues? → Revision    │   │
+│  │  HALLUCINATION / MISSING / SEVERITY /          │   │
+│  │  DUPLICATE / CONSISTENCY                       │   │
+│  └──────────────────────────────────────────────┘    │
+│                                                       │
+│  Risks 合并：rule + AI 按 (file,line,message) 去重    │
+└──────────────────────────────────────────────────────┘
 ```
 
 完整带 Mermaid 图与各阶段输入输出示例：见 [`docs/architecture.md`](docs/architecture.md)。
 Prompt 模板与 Token 策略：见 [`docs/prompt-strategy.md`](docs/prompt-strategy.md)。
 
-**核心工程亮点**：不一次性把整团 diff 扔给 LLM，而是先做规则风险检测 → 上下文增强 → 按文件类型分流 Prompt → AI 分析。这让规则层稳定命中已知模式（不依赖 LLM 心情），LLM 专注做规则抓不到的语义/架构层判断。
+**核心工程亮点**：
 
-**PR#9 强化**：针对评测反馈"能找代码层 bug 但抓不住异常语义改变 / 应在根因层修复 / 偶尔会报 NPE 假阳性"等资深 Reviewer 视角问题，做了五项强化：① 在 Prompt 里加"语义/异常/契约改变 checklist"和"HIGH/MEDIUM/LOW 评级标尺"，明确要求行为/语义被改变 → HIGH；② 新增 `ExceptionSwallowingRule` 检测 `catch X → throw new Y` 的类型洗白；③ Prompt Token 预算从硬编码改为 `reviewpilot.prompt.budget.*` 配置项，演示长 PR 时不需重编；④ NPE 标注前先扫 Context 块的 null 守卫，避免假阳性；⑤ Cause-inference fragility 守卫，让模型质疑"凭什么这个异常类型一定对应作者期望的那一个原因"，引导根因层修复建议。
+- **ReAct Agent 自主循环**：LLM 不再是被动的一次性调用，而是主动决定"我需要看哪个文件的完整代码""我需要搜索哪些符号"，最多 8 轮自主探索后输出最终审查结果。
+- **Critic 质检 + 修订**：Agent 输出经 Critic 做 5 维质量检查（幻觉/遗漏/严重度/重复/一致性），发现问题自动触发修订轮次。
+- **规则 + AI 双层架构**：9 条确定性规则稳定命中已知模式（不依赖 LLM 心情），LLM 专注做规则抓不到的语义/架构层判断。规则按 `(file,line,message)` 去重后与 AI risks 合并，规则优先。
+- **Tool Registry**：线程安全的工具调度器，`search_repo` 限流 25 次/分钟 + 缓存，`fetch_file_content` 通过 GitHub Contents API 拉取完整文件。
 
 ## 本地启动
 
@@ -123,7 +145,7 @@ curl -X POST http://localhost:8080/api/review \
   "summary": "...",
   "risks":       [{"level":"HIGH|MEDIUM|LOW","file":"...","line":42,"message":"..."}],
   "suggestions": [{"file":"...","line":42,"message":"..."}],
-  "meta": {"provider":"deepseek","model":"deepseek-chat","filesAnalyzed":3,"elapsedMs":4823}
+  "meta": {"provider":"deepseek","model":"deepseek-chat","filesAnalyzed":3,"elapsedMs":4823,"agentRounds":1}
 }
 ```
 
@@ -153,7 +175,8 @@ curl -X POST http://localhost:8080/api/review \
 - ✅ PR#6 ContextLoader + 分流 PromptBuilder（核心亮点）
 - ✅ PR#7 Vue3 极简前端
 - ✅ PR#8 README、架构图、Prompt 策略说明
-- 🚧 PR#9 Prompt/规则强化 + 演示打磨（本 PR）
+- ✅ PR#9 Prompt/规则强化 + 演示打磨
+- ✅ V3 ReAct Agent + Critic Reflection 循环
 
 ## 第三方依赖
 
@@ -186,6 +209,13 @@ curl -X POST http://localhost:8080/api/review \
 | `PromptTemplate` 6 条 guidance | 按文件类型手写的 review 关键词清单 |
 | `PromptBuilder` 分组+预算 | 6k/file + 60k/total 双重护栏 + 显式截断标记 |
 | `ReviewPipeline.parseModelReply` | 抗前导/尾随文字的 `extractJsonObject`；rule + AI risks 按 `(file,line,message)` 去重，rule 优先 |
+| `ReviewAgent` | ReAct 循环：message 构建 → token 预算管理 → 收敛机制（4 次工具调用后停发工具） → parseWithRetry |
+| `ToolRegistry` | 工具调度 + 限流（25 次/min 滑动窗口）+ 缓存 + 未知工具容错 |
+| `ReflectionOrchestrator` + `CriticResult` | 5 维 Critic 质检（HALLUCINATION/MISSING/SEVERITY/DUPLICATE/CONSISTENCY）→ 解析失败重试 → 自动修订 |
+| `JsonReplyCleaner` | 统一 JSON 清洗（fence 剥离 + extractJsonObject），ReviewAgent 和 ReflectionOrchestrator 共享 |
+| `FileContentFetcher` | GitHub Contents API 完整文件拉取 + Base64 解码 + 8k 截断 |
+| `ExceptionSwallowingRule` | catch X → throw new Y 类型洗白检测 |
+| `HardcodedSecretRule` / `InsecureRandomRule` / `WeakHashRule` | 硬编码密钥 / 不安全随机数 / 弱哈希检测 |
 | 前端 `ResultPanel/RiskList/SuggestionList` | 自写 Vue3 组件，仅依赖 Element Plus 标签/卡片基础组件 |
 
 第三方服务（GitHub API / DeepSeek API）只用其公开 REST 接口；调用客户端、错误处理、重试与日志策略均自实现。

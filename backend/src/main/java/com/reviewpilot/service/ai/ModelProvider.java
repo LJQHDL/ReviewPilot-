@@ -1,13 +1,13 @@
 package com.reviewpilot.service.ai;
 
+import java.util.List;
+
 /**
- * Abstraction over an LLM chat completion. Each provider takes a system + user
- * message pair and returns the model's text response.
+ * Abstraction over an LLM chat completion.
  * <p>
- * Kept deliberately small so swapping DeepSeek for Claude/OpenAI/Ollama is a
- * single-file change. PR#3 ships {@code DeepSeekProvider}; later providers can
- * be plugged in by adding a {@code @Component} and switching
- * {@code reviewpilot.ai.provider} in application.yml.
+ * {@link #complete(String, String)} is the original single-shot interface
+ * used by tests and the V2 pipeline. {@link #chat(List, List)} is the V3
+ * multi-turn interface that supports tool calling for the ReAct agent loop.
  */
 public interface ModelProvider {
 
@@ -15,11 +15,17 @@ public interface ModelProvider {
     String name();
 
     /**
-     * Run a single completion.
-     *
-     * @param systemPrompt instructions defining the assistant's role/output schema
-     * @param userPrompt   the actual review payload (built by PromptBuilder)
-     * @return model's reply text (NOT the raw HTTP body)
+     * Run a single completion (V1/V2).
      */
     String complete(String systemPrompt, String userPrompt);
+
+    /**
+     * Multi-turn chat with message history and optional tool definitions (V3).
+     * The provider sends the full message list plus tool definitions to the
+     * LLM and returns either a text reply or tool calls.
+     */
+    AgentResponse chat(List<Message> messages, List<Tool> tools);
+
+    /** Model identifier for diagnostics (e.g. "deepseek-chat"). */
+    default String modelName() { return null; }
 }

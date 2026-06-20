@@ -20,7 +20,7 @@ class PromptBuilderTest {
 
     @Test
     void empty_files_returns_empty_prompt() {
-        String out = builder.build(List.of(), Map.of(), List.of(), List.of());
+        String out = builder.build(List.of(), Map.of(), List.of(), List.of(), Map.of(), null);
         assertTrue(out.isEmpty());
     }
 
@@ -32,7 +32,7 @@ class PromptBuilderTest {
                 "Foo.java", FileType.CONTROLLER,
                 "Bar.java", FileType.SERVICE);
 
-        String out = builder.build(List.of(controller, service), types, List.of(), List.of());
+        String out = builder.build(List.of(controller, service), types, List.of(), List.of(), Map.of(), null);
 
         // Both group headers appear.
         assertTrue(out.contains("## Group: CONTROLLER"));
@@ -54,7 +54,7 @@ class PromptBuilderTest {
                 new RiskItem(RiskLevel.HIGH, "A.java", 42, "lock without unlock"),
                 new RiskItem(RiskLevel.LOW, "B.java", 9, "should not appear here"));
 
-        String out = builder.build(List.of(f), types, risks, List.of());
+        String out = builder.build(List.of(f), types, risks, List.of(), Map.of(), null);
 
         assertTrue(out.contains("Pre-detected risks"));
         assertTrue(out.contains("[HIGH]"));
@@ -71,7 +71,7 @@ class PromptBuilderTest {
         ContextSlice slice = new ContextSlice("A.java", 10, 12,
                 List.of("  10: foo", "+ 11: bar", "  12: baz"));
 
-        String out = builder.build(List.of(f), types, List.of(), List.of(slice));
+        String out = builder.build(List.of(f), types, List.of(), List.of(slice), Map.of(), null);
 
         assertTrue(out.contains("Context (lines around the risks):"));
         assertTrue(out.contains("--- 10-12 ---"));
@@ -82,7 +82,7 @@ class PromptBuilderTest {
     void unclassified_file_falls_back_to_other_template() {
         // No entry in the classifications map for this file → OTHER template.
         FileChange f = file("notes.md", "@@ patch");
-        String out = builder.build(List.of(f), Map.of(), List.of(), List.of());
+        String out = builder.build(List.of(f), Map.of(), List.of(), List.of(), Map.of(), null);
         assertTrue(out.contains("## Group: OTHER"));
         assertTrue(out.contains("don't match a specific role"));
     }
@@ -91,7 +91,7 @@ class PromptBuilderTest {
     void binary_file_renders_a_marker_instead_of_patch() {
         FileChange f = new FileChange("logo.png", "added", 0, 0, true, null, List.of());
         String out = builder.build(List.of(f), Map.of("logo.png", FileType.OTHER),
-                List.of(), List.of());
+                List.of(), List.of(), Map.of(), null);
         assertTrue(out.contains("(binary or no patch)"));
     }
 
@@ -104,7 +104,7 @@ class PromptBuilderTest {
         FileChange f = file("Big.java", huge);
 
         String out = builder.build(List.of(f), Map.of("Big.java", FileType.OTHER),
-                List.of(), List.of());
+                List.of(), List.of(), Map.of(), null);
 
         assertTrue(out.contains("[...truncated"), "per-file truncation marker missing");
         assertFalse(out.contains("x".repeat(20_000)), "untruncated patch should not appear in full");
@@ -124,7 +124,7 @@ class PromptBuilderTest {
             types.put(name, FileType.OTHER);
         }
 
-        String out = builder.build(files, types, List.of(), List.of());
+        String out = builder.build(files, types, List.of(), List.of(), Map.of(), null);
 
         assertTrue(out.contains("remaining files omitted to stay within prompt budget"),
                 "total-budget truncation marker missing");
@@ -196,7 +196,7 @@ class PromptBuilderTest {
         FileChange f = file("Big.java", "@@\n" + "x".repeat(1_000));
 
         String out = small.build(List.of(f), Map.of("Big.java", FileType.OTHER),
-                List.of(), List.of());
+                List.of(), List.of(), Map.of(), null);
 
         assertTrue(out.contains("[...truncated"),
                 "custom per-file cap must still emit truncation marker");
