@@ -56,6 +56,60 @@ public class GithubPrFetcher {
         return raw.stream().map(this::toFileChange).toList();
     }
 
+    /**
+     * Fetch the PR title from the GitHub API. Returns null on failure so the
+     * pipeline can degrade gracefully — the title is a hint, not a requirement.
+     */
+    public String fetchPrTitle(PrUrl pr) {
+        try {
+            PrMetadata meta = github.get()
+                    .uri(pr.apiPath())
+                    .retrieve()
+                    .bodyToMono(PrMetadata.class)
+                    .block();
+            return meta != null ? meta.title() : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    private record PrMetadata(String title) {}
+
+    /**
+     * Search the PR's repository for a keyword. Returns up to 5 matching
+     * file paths with snippet context, or null on failure.
+     */
+    public String searchCode(PrUrl pr, String query) {
+        try {
+            String uri = "/search/code?q=" + query + "+repo:" + pr.owner() + "/" + pr.repo()
+                    + "&per_page=5";
+            SearchResult result = github.get()
+                    .uri(uri)
+                    .retrieve()
+                    .bodyToMono(SearchResult.class)
+                    .block();
+            if (result == null || result.items() == null || result.items().isEmpty()) {
+                return null;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (SearchItem item : result.items()) {
+                sb.append(item.path()).append("\n");
+            }
+            return sb.toString();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    private record SearchResult(
+            @com.fasterxml.jackson.annotation.JsonProperty("total_count") int totalCount,
+            List<SearchItem> items) {}
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    private record SearchItem(String path, String name) {}
+
     private FileChange toFileChange(GithubPrFile f) {
         boolean binary = f.patch() == null && !"removed".equals(f.status());
         return new FileChange(

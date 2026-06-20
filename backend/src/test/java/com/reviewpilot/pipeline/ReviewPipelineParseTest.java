@@ -15,10 +15,16 @@ class ReviewPipelineParseTest {
      * them get touched by parseModelReply / stripFences.
      */
     private final ReviewPipeline pipeline = new ReviewPipeline(null, null, null, null, null,
+            null,
             new com.reviewpilot.service.ai.ModelProvider() {
                 public String name() { return "stub"; }
                 public String complete(String s, String u) { return ""; }
-            });
+                public com.reviewpilot.service.ai.AgentResponse chat(
+                        java.util.List<com.reviewpilot.service.ai.Message> m,
+                        java.util.List<com.reviewpilot.service.ai.Tool> t) {
+                    return new com.reviewpilot.service.ai.AgentResponse("", java.util.List.of(), 0, 0);
+                }
+            }, null, null);
 
     @Test
     void parses_well_formed_json() {
@@ -87,7 +93,7 @@ class ReviewPipelineParseTest {
 
     @Test
     void stripFences_keeps_content_without_fences() {
-        assertEquals("{\"a\":1}", ReviewPipeline.stripFences("{\"a\":1}").trim());
+        assertEquals("{\"a\":1}", com.reviewpilot.service.ai.JsonReplyCleaner.stripFences("{\"a\":1}").trim());
     }
 
     @Test
@@ -135,6 +141,6 @@ class ReviewPipelineParseTest {
     void extractJsonObject_returns_input_when_no_braces() {
         // Reply with no JSON at all should pass through unchanged so the
         // parser produces a clear error and we fall back to text summary.
-        assertEquals("not json at all", ReviewPipeline.extractJsonObject("not json at all"));
+        assertEquals("not json at all", com.reviewpilot.service.ai.JsonReplyCleaner.extractJsonObject("not json at all"));
     }
 }

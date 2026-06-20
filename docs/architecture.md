@@ -6,23 +6,39 @@
 
 ```mermaid
 flowchart TD
-    UI[Vue3 前端<br/>输入 PR URL] -->|POST /api/review| C[ReviewController]
-    C --> P[ReviewPipeline]
 
-    subgraph PIPE[ReviewPipeline · 7 stages]
-        F[1 GithubPrFetcher<br/>GET /pulls/{n}/files] --> D[2 DiffParser<br/>unified diff → DiffHunk]
-        D --> CL[3 FileClassifier<br/>FileType 6 类]
-        CL --> R[4 RiskDetector<br/>5 条规则 patch-only]
-        CL --> CTX[5 ContextLoader<br/>hunk ±3 行切片]
-        R --> PB[6 PromptBuilder<br/>按 FileType 分流模板]
+    UI["Vue3 前端<br/>输入 PR URL"] -->|"POST /api/review"| C["ReviewController"]
+
+    C --> P["ReviewPipeline"]
+
+    subgraph PIPE["ReviewPipeline (7 Stages)"]
+
+        F["1 GithubPrFetcher<br/>GET /pulls/{prNumber}/files"]
+        D["2 DiffParser<br/>unified diff → DiffHunk"]
+        CL["3 FileClassifier<br/>FileType 6 类"]
+        R["4 RiskDetector<br/>5 条规则 patch-only"]
+        CTX["5 ContextLoader<br/>hunk ±3 行切片"]
+        PB["6 PromptBuilder<br/>按 FileType 分流模板"]
+        M["7 ModelProvider<br/>DeepSeekProvider"]
+
+        F --> D
+        D --> CL
+        D --> CTX
+
+        CL --> R
+        CL --> PB
+
+        R --> PB
         CTX --> PB
-        PB --> M[7 ModelProvider<br/>DeepSeekProvider]
+
+        PB --> M
     end
 
-    P --> PIPE
+    P --> F
     M --> P
-    P -->|合并 rule+AI risks 去重| C
-    C -->|ReviewResult JSON| UI
+
+    P -->|"合并 rule + AI risks 去重"| C
+    C -->|"ReviewResult JSON"| UI
 ```
 
 ## 各阶段输入输出

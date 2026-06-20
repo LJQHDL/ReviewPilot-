@@ -46,8 +46,11 @@ class ReviewPipelineFlowTest {
     private FileClassifier classifier;
     private RiskDetector riskDetector;
     private ContextLoader contextLoader;
+    private com.reviewpilot.service.github.FileContentFetcher contentFetcher;
     private PromptBuilder promptBuilder;
     private ModelProvider modelProvider;
+    private com.reviewpilot.service.ai.ReviewAgent reviewAgent;
+    private com.reviewpilot.service.critic.ReflectionOrchestrator orchestrator;
     private ReviewPipeline pipeline;
 
     @BeforeEach
@@ -56,14 +59,24 @@ class ReviewPipelineFlowTest {
         classifier = mock(FileClassifier.class);
         riskDetector = mock(RiskDetector.class);
         contextLoader = mock(ContextLoader.class);
+        contentFetcher = mock(com.reviewpilot.service.github.FileContentFetcher.class);
         promptBuilder = mock(PromptBuilder.class);
         modelProvider = mock(ModelProvider.class);
+        reviewAgent = mock(com.reviewpilot.service.ai.ReviewAgent.class);
+        orchestrator = mock(com.reviewpilot.service.critic.ReflectionOrchestrator.class);
         when(modelProvider.name()).thenReturn("deepseek");
         when(classifier.classify(any())).thenReturn(FileType.OTHER);
         when(riskDetector.scan(any())).thenReturn(List.of());
         when(contextLoader.load(any(), any())).thenReturn(List.of());
+        when(contentFetcher.fetchForRiskyFiles(any(), any())).thenReturn(Map.of());
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+                .thenReturn(new ReviewResult("", "stub", List.of(), List.of(),
+                        new ReviewResult.Meta("deepseek", null, 0, 0)));
+        when(orchestrator.refine(any(), any(), any(), any()))
+                .thenReturn(new com.reviewpilot.service.critic.ReflectionOrchestrator.RefinementResult(null, List.of()));
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector,
-                contextLoader, promptBuilder, modelProvider);
+                contextLoader, contentFetcher, promptBuilder, modelProvider,
+                reviewAgent, orchestrator);
     }
 
     @Test
@@ -72,15 +85,15 @@ class ReviewPipelineFlowTest {
                 3, 1, false, "@@ -1 +1 @@", List.of());
         when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
         when(promptBuilder.systemPrompt()).thenReturn("SYSTEM");
-        when(promptBuilder.build(eq(List.of(fc)), any(), any(), any())).thenReturn("USER-PROMPT");
-        when(modelProvider.complete("SYSTEM", "USER-PROMPT")).thenReturn("""
-                {"summary":"refactor Foo","risks":[],"suggestions":[]}
-                """);
+        when(promptBuilder.build(eq(List.of(fc)), any(), any(), any(), any(), any())).thenReturn("USER-PROMPT");
 
         String url = "https://github.com/owner/repo/pull/12";
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+                .thenReturn(new ReviewResult(url, "refactor Foo", List.of(), List.of(),
+                        new ReviewResult.Meta("deepseek", null, 1, 0)));
+
         ReviewResult r = pipeline.review(url);
 
-        // Schema fields surfaced from the model reply.
         assertEquals(url, r.prUrl());
         assertEquals("refactor Foo", r.summary());
         assertTrue(r.risks().isEmpty());
@@ -92,25 +105,14 @@ class ReviewPipelineFlowTest {
         assertEquals(1, r.meta().filesAnalyzed());
         assertTrue(r.meta().elapsedMs() >= 0, "elapsedMs should be measured");
 
-        // Verify ordering across the full pipeline: fetch → classify each file
-        // → run rule scans → load context → build prompt → ask for system
-        // prompt → call LLM. The new collaborators (classifier, riskDetector,
-        // contextLoader) must each be invoked exactly once in this order.
+        // Verify ordering: fetch → classify → scan → load → reviewAgent
         InOrder order = inOrder(fetcher, classifier, riskDetector, contextLoader,
-                promptBuilder, modelProvider);
+                reviewAgent);
         order.verify(fetcher).fetchFiles(any());
         order.verify(classifier).classify(fc);
         order.verify(riskDetector).scan(eq(List.of(fc)));
         order.verify(contextLoader).load(eq(List.of(fc)), eq(List.of()));
-        order.verify(promptBuilder).build(eq(List.of(fc)), any(), any(), any());
-        order.verify(promptBuilder).systemPrompt();
-        order.verify(modelProvider).complete("SYSTEM", "USER-PROMPT");
-
-        // Defensive: prompt builder receives the exact list the fetcher returned.
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<FileChange>> captor = ArgumentCaptor.forClass(List.class);
-        verify(promptBuilder).build(captor.capture(), any(), any(), any());
-        assertSame(fc, captor.getValue().get(0));
+        order.verify(reviewAgent).review(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -120,7 +122,7 @@ class ReviewPipelineFlowTest {
         when(fetcher.fetchFiles(any())).thenReturn(List.of(a, b));
         when(classifier.classify(a)).thenReturn(FileType.CONTROLLER);
         when(classifier.classify(b)).thenReturn(FileType.SERVICE);
-        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
+        when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
         when(modelProvider.complete(any(), any())).thenReturn(
                 "{\"summary\":\"\",\"risks\":[],\"suggestions\":[]}");
@@ -134,7 +136,7 @@ class ReviewPipelineFlowTest {
         // not all-OTHER, not partial. Otherwise role-specific prompts disappear.
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, FileType>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(promptBuilder).build(any(), captor.capture(), any(), any());
+        verify(promptBuilder).build(any(), captor.capture(), any(), any(), any(), any());
         Map<String, FileType> classifications = captor.getValue();
         assertEquals(FileType.CONTROLLER, classifications.get("Foo.java"));
         assertEquals(FileType.SERVICE, classifications.get("Bar.java"));
@@ -150,12 +152,13 @@ class ReviewPipelineFlowTest {
         when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
         when(riskDetector.scan(eq(List.of(fc)))).thenReturn(List.of(ruleRisk));
         when(contextLoader.load(eq(List.of(fc)), eq(List.of(ruleRisk)))).thenReturn(List.of(slice));
-        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
+        when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        // Model returns one new risk; ruleRisk is not echoed.
-        when(modelProvider.complete(any(), any())).thenReturn("""
-                {"summary":"ok","risks":[{"level":"MEDIUM","file":"Foo.java","line":42,"message":"ai finding"}],"suggestions":[]}
-                """);
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+                .thenReturn(new ReviewResult("https://github.com/o/r/pull/1", "ok",
+                        List.of(new RiskItem(RiskLevel.MEDIUM, "Foo.java", 42, "ai finding")),
+                        List.of(),
+                        new ReviewResult.Meta("deepseek", null, 1, 0)));
 
         ReviewResult r = pipeline.review("https://github.com/o/r/pull/1");
 
@@ -168,7 +171,7 @@ class ReviewPipelineFlowTest {
         ArgumentCaptor<List<RiskItem>> riskCaptor = ArgumentCaptor.forClass(List.class);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ContextSlice>> ctxCaptor = ArgumentCaptor.forClass(List.class);
-        verify(promptBuilder).build(any(), any(), riskCaptor.capture(), ctxCaptor.capture());
+        verify(promptBuilder).build(any(), any(), riskCaptor.capture(), ctxCaptor.capture(), any(), any());
         assertEquals(1, riskCaptor.getValue().size());
         assertEquals("lock without unlock", riskCaptor.getValue().get(0).message());
         assertEquals(1, ctxCaptor.getValue().size());
@@ -187,7 +190,7 @@ class ReviewPipelineFlowTest {
         RiskItem ruleRisk = new RiskItem(RiskLevel.HIGH, "Foo.java", 12, "lock without unlock");
         when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
         when(riskDetector.scan(any())).thenReturn(List.of(ruleRisk));
-        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
+        when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
         when(modelProvider.complete(any(), any())).thenReturn("""
                 {"summary":"ok","risks":[{"level":"HIGH","file":"Foo.java","line":12,"message":"lock without unlock"}],"suggestions":[]}
@@ -210,7 +213,7 @@ class ReviewPipelineFlowTest {
         assertEquals("deepseek", r.meta().provider());
 
         // No prompt construction, no LLM call — saves tokens and avoids junk output.
-        verify(promptBuilder, never()).build(any(), any(), any(), any());
+        verify(promptBuilder, never()).build(any(), any(), any(), any(), any(), any());
         verify(promptBuilder, never()).systemPrompt();
         verify(modelProvider, never()).complete(any(), any());
     }
@@ -242,21 +245,17 @@ class ReviewPipelineFlowTest {
     }
 
     @Test
-    void model_reply_with_markdown_fence_is_still_parsed_in_main_flow() {
+    void model_reply_parsing_is_handled_by_review_agent() {
         FileChange fc = new FileChange("a", "modified", 1, 0, false, "@@", List.of());
         when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        when(promptBuilder.build(any(), any(), any(), any())).thenReturn("U");
-        when(modelProvider.complete(any(), any())).thenReturn("""
-                ```json
-                {"summary":"ok","risks":[],"suggestions":[]}
-                ```
-                """);
+        when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+                .thenReturn(new ReviewResult("https://github.com/owner/repo/pull/1", "ok",
+                        List.of(), List.of(),
+                        new ReviewResult.Meta("deepseek", null, 1, 0)));
 
         ReviewResult r = pipeline.review("https://github.com/owner/repo/pull/1");
-        // Fence stripping happens inside the main flow, not just in the
-        // parser-only test — guards against the orchestrator forgetting to
-        // call parseModelReply on the raw text.
         assertEquals("ok", r.summary());
     }
 }

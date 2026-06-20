@@ -35,3 +35,21 @@ reviewpilot:
       timeout: 60s
       max-tokens: 4096
       temperature: 0.2
+    agent:
+      reflection:
+        # Toggle the Critic → Revision loop. When false, /api/review runs a
+        # single LLM pass (V1 behaviour). Enable for demos that show the
+        # quality-improvement loop; disable for low-latency daily use.
+        enabled: true
+        # Maximum revision attempts (currently fixed at 1 — multi-round is V3).
+        # max-rounds: 2
+      content-fetcher:
+        enabled: true
+      react:
+        # ReAct agent loop: max LLM turns (including tool calls) before forced
+        # completion. Lower values reduce latency; raise for complex multi-file PRs.
+        max-rounds: 8
+        # Rough character limit for the entire conversation context (system prompt +
+        # user prompt + tool call results + LLM responses). When exceeded, early
+        # tool results are truncated. Characters / 4 ≈ token estimate.
+        max-total-chars: 64000

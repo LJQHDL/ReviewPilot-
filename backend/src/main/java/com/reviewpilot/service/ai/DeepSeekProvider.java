@@ -47,6 +47,54 @@ public class DeepSeekProvider implements ModelProvider {
     }
 
     @Override
+    public String modelName() {
+        return props.model();
+    }
+
+    @Override
+    public AgentResponse chat(List<Message> messages, List<Tool> tools) {
+        if (!props.isConfigured()) {
+            throw new AiProviderException(
+                    "DeepSeek API key is not set. Export DEEPSEEK_API_KEY before calling /api/review.");
+        }
+
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("model", props.model());
+        body.put("temperature", props.temperature());
+        body.put("max_tokens", props.maxTokens());
+        body.put("stream", false);
+        body.put("messages", messages.stream().map(Message::toApiMap).toList());
+        if (tools != null && !tools.isEmpty()) {
+            body.put("tools", tools.stream().map(Tool::toApiMap).toList());
+        }
+
+        DsCompletion response = callWithRetry(body, "chat");
+        if (response == null) {
+            throw new AiProviderException("DeepSeek chat call failed after retries");
+        }
+
+        if (response == null || response.choices() == null || response.choices().isEmpty()) {
+            throw new AiProviderException("DeepSeek returned no choices");
+        }
+        DsChoice first = response.choices().get(0);
+        if (first.message() == null) {
+            throw new AiProviderException("DeepSeek response missing message");
+        }
+
+        String content = first.message().content();
+        List<ToolCall> toolCalls = first.message().toolCalls() != null
+                ? first.message().toolCalls().stream().map(DsToolCall::toToolCall).toList()
+                : List.of();
+        int promptTokens = response.usage() != null ? response.usage().promptTokens() : 0;
+        int completionTokens = response.usage() != null ? response.usage().completionTokens() : 0;
+
+        return new AgentResponse(
+                content != null ? content : "",
+                toolCalls != null ? toolCalls : List.of(),
+                promptTokens, completionTokens);
+    }
+
+    @Override
     public String complete(String systemPrompt, String userPrompt) {
         if (!props.isConfigured()) {
             throw new AiProviderException(
@@ -64,43 +112,101 @@ public class DeepSeekProvider implements ModelProvider {
                 )
         );
 
-        ChatCompletion response;
-        try {
-            response = webClient.post()
-                    .uri("/v1/chat/completions")
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(ChatCompletion.class)
-                    .block();
-        } catch (WebClientResponseException e) {
-            // Body might echo back parts of the request; log status + length only.
-            log.warn("DeepSeek API call failed: status={} bodyLen={}",
-                    e.getStatusCode().value(),
-                    e.getResponseBodyAsString() == null ? 0 : e.getResponseBodyAsString().length());
-            throw new AiProviderException(
-                    "DeepSeek API call failed with status " + e.getStatusCode().value(), e);
-        } catch (RuntimeException e) {
-            throw new AiProviderException("DeepSeek API call failed: " + e.getMessage(), e);
+        DsCompletion response = callWithRetry(body, "complete");
+        if (response == null) {
+            throw new AiProviderException("DeepSeek complete call failed after retries");
         }
 
         if (response == null || response.choices() == null || response.choices().isEmpty()) {
             throw new AiProviderException("DeepSeek returned no choices");
         }
-        Choice first = response.choices().get(0);
+        DsChoice first = response.choices().get(0);
         if (first.message() == null || first.message().content() == null) {
             throw new AiProviderException("DeepSeek response missing message content");
         }
         return first.message().content();
     }
 
+    /**
+     * Call the DeepSeek API with up to 2 retries for transient network errors
+     * (Connection reset, timeout). Non-transient errors (4xx, 5xx with status)
+     * are NOT retried and fail immediately.
+     */
+    private DsCompletion callWithRetry(Map<String, Object> body, String caller) {
+        int maxRetries = 2;
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return webClient.post()
+                        .uri("/v1/chat/completions")
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(DsCompletion.class)
+                        .block();
+            } catch (WebClientResponseException e) {
+                // HTTP status errors (4xx/5xx) — not transient, don't retry
+                String respBody = e.getResponseBodyAsString();
+                log.warn("DeepSeek {} call failed: status={} body={}",
+                        caller, e.getStatusCode().value(),
+                        respBody != null ? respBody.substring(0, Math.min(respBody.length(), 500)) : "null");
+                throw new AiProviderException(
+                        "DeepSeek API call failed with status " + e.getStatusCode().value(), e);
+            } catch (RuntimeException e) {
+                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                boolean isTransient = msg.contains("reset") || msg.contains("timeout")
+                        || msg.contains("timed out") || msg.contains("refused");
+                if (attempt < maxRetries && isTransient) {
+                    long delay = (attempt + 1) * 1000L;
+                    log.warn("DeepSeek {} transient error (attempt {}/{}): {} — retrying in {}s",
+                            caller, attempt + 1, maxRetries + 1, msg, delay / 1000);
+                    try { Thread.sleep(delay); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); break; }
+                    continue;
+                }
+                if (attempt >= maxRetries) {
+                    log.error("DeepSeek {} failed after {} retries: {}", caller, maxRetries, msg);
+                }
+                throw new AiProviderException("DeepSeek API call failed: " + msg, e);
+            }
+        }
+        return null;
+    }
+
     // --- DTOs (subset of the OpenAI-compatible schema) -----------------------
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ChatCompletion(String id, String model, List<Choice> choices) {}
+    public record DsCompletion(String id, String model, List<DsChoice> choices,
+                                  DsUsage usage) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Choice(int index, Message message, String finish_reason) {}
+    public record DsChoice(int index, DsMessage message, String finish_reason) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Message(String role, String content) {}
+    public record DsMessage(String role, String content,
+                             @com.fasterxml.jackson.annotation.JsonProperty("tool_calls")
+                             List<DsToolCall> toolCalls) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record DsToolCall(String id, String type, DsFunction function) {
+        public ToolCall toToolCall() {
+            return new ToolCall(id, function.name(),
+                    parseArguments(function.arguments()));
+        }
+        private static Map<String, Object> parseArguments(String json) {
+            if (json == null || json.isBlank()) return Map.of();
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> map = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(json, Map.class);
+                return map;
+            } catch (Exception e) {
+                return Map.of();
+            }
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record DsFunction(String name, String arguments) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record DsUsage(@com.fasterxml.jackson.annotation.JsonProperty("prompt_tokens") int promptTokens,
+                           @com.fasterxml.jackson.annotation.JsonProperty("completion_tokens") int completionTokens) {}
 }

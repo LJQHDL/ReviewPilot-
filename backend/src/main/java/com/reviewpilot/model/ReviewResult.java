@@ -20,10 +20,36 @@ public record ReviewResult(
         String summary,
         List<RiskItem> risks,
         List<Suggestion> suggestions,
+        List<String> keyFindings,
         Meta meta
 ) {
 
-    /** Diagnostic metadata. */
+    /** Diagnostic metadata. {@code agentRounds} tracks how many LLM review
+     *  attempts were made (1 = single pass, 2 = critic triggered revision).
+     *  {@code reactRounds} and {@code reactToolCalls} are the ReAct agent's
+     *  internal stats — useful for progress UX and debugging. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Meta(String provider, String model, int filesAnalyzed, long elapsedMs) {}
+    public record Meta(String provider, String model, int filesAnalyzed, long elapsedMs,
+                       int agentRounds, int reactRounds, int reactToolCalls) {
+        public Meta(String provider, String model, int filesAnalyzed, long elapsedMs,
+                    int agentRounds) {
+            this(provider, model, filesAnalyzed, elapsedMs, agentRounds, 0, 0);
+        }
+        public Meta(String provider, String model, int filesAnalyzed, long elapsedMs) {
+            this(provider, model, filesAnalyzed, elapsedMs, 1, 0, 0);
+        }
+    }
+
+    // ── Backward-compatible constructors (keyFindings defaults to empty) ──
+
+    public ReviewResult(String prUrl, String summary, List<RiskItem> risks,
+                        List<Suggestion> suggestions, Meta meta) {
+        this(prUrl, summary, risks, suggestions, List.of(), meta);
+    }
+
+    public ReviewResult {
+        if (keyFindings == null) keyFindings = List.of();
+        if (risks == null) risks = List.of();
+        if (suggestions == null) suggestions = List.of();
+    }
 }
