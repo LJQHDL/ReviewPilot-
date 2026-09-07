@@ -20,7 +20,7 @@
 `PromptBuilder.systemPrompt()` 用三个手段锁住输出：
 
 1. **Schema 直接贴进 prompt**：模型不需要"理解"返回什么字段，复制就好。
-2. **JSON-only**：明确禁止 prose / code fence / markdown，配合后处理 `parseModelReply` 提取 `{...}` 子串再解析（容忍 LLM 偶尔在前后多说两句）。
+2. **JSON-only**：明确禁止 prose / code fence / markdown，配合后处理 `ReviewReplyReader` 提取 `{...}` 子串再解析（容忍 LLM 偶尔在前后多说两句）。
 3. **空数组合法**：避免模型"为了不空着"瞎编风险点。
 
 ```
@@ -123,7 +123,7 @@ LLM 的输入有限（DeepSeek `deepseek-chat` 约 64K tokens 输入），且越
 
 ## 输出后处理：rule + AI risks 合并去重
 
-`ReviewPipeline.parseModelReply` 拿到 LLM JSON 后：
+`ReviewReplyReader` 解析 LLM JSON，随后 `RiskMerger` 合并规则与 AI 风险：
 
 1. **抗前导/尾随文字**：用 `extractJsonObject` 取 `{...}` 子串再 parse，模型偶尔返回 `Sure, here is the review: { ... }` 也不会炸。
 2. **risks 合并**：把 LLM 的 risks 与规则层的 risks 按 `(file, line, message)` 元组做集合去重——**规则结果优先**，LLM 重复的会被丢掉。

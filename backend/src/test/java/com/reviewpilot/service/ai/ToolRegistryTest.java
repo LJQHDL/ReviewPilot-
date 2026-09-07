@@ -2,7 +2,7 @@ package com.reviewpilot.service.ai;
 
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.service.github.FileContentFetcher;
-import com.reviewpilot.service.github.GithubPrFetcher;
+import com.reviewpilot.service.github.GithubCodeSearcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,16 +20,16 @@ import static org.mockito.Mockito.when;
 
 class ToolRegistryTest {
 
-    private GithubPrFetcher prFetcher;
+    private GithubCodeSearcher prFetcher;
     private FileContentFetcher fileContentFetcher;
     private ToolRegistry registry;
     private final PrUrl pr = PrUrl.parse("https://github.com/owner/repo/pull/1");
 
     @BeforeEach
     void setup() {
-        prFetcher = mock(GithubPrFetcher.class);
+        prFetcher = mock(GithubCodeSearcher.class);
         fileContentFetcher = mock(FileContentFetcher.class);
-        registry = new ToolRegistry(prFetcher, fileContentFetcher);
+        registry = new ToolRegistry(new RepositorySearchService(prFetcher), fileContentFetcher);
     }
 
     @Test

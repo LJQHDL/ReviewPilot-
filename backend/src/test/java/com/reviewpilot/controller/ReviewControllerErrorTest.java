@@ -43,6 +43,26 @@ class ReviewControllerErrorTest {
     @MockBean
     private ReviewPipeline pipeline;
 
+    @MockBean
+    private com.reviewpilot.pipeline.PrFilesQuery filesQuery;
+
+    @Test
+    void diff_endpoint_uses_shared_error_envelope() throws Exception {
+        when(filesQuery.files(any())).thenThrow(new GithubAuthException(401, "bad creds", null));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/api/pr/files").param("prUrl", "https://github.com/o/r/pull/1"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value(containsString("GitHub auth failed")));
+    }
+
+    @Test
+    void ordinary_provider_failure_is_not_auth_failure_even_with_old_message_prefix() throws Exception {
+        when(pipeline.review(any())).thenThrow(new AiProviderException("DeepSeek API key is not set elsewhere"));
+        mvc.perform(post("/api/review").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prUrl\":\"https://github.com/o/r/pull/1\"}"))
+                .andExpect(status().isBadGateway());
+    }
+
     @Test
     void blank_url_returns_400_with_error_field() throws Exception {
         mvc.perform(post("/api/review")
@@ -78,13 +98,13 @@ class ReviewControllerErrorTest {
 
     @Test
     void missing_deepseek_key_returns_401_with_error_field() throws Exception {
-        when(pipeline.review(any())).thenThrow(new AiProviderException("DeepSeek API key is not set"));
+        when(pipeline.review(any())).thenThrow(new com.reviewpilot.service.ai.AiAuthenticationException("Model credentials missing"));
 
         mvc.perform(post("/api/review")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(new ReviewController.ReviewRequest("https://github.com/o/r/pull/1"))))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("DeepSeek API key is not set"));
+                .andExpect(jsonPath("$.error").value("Model credentials missing"));
     }
 
     @Test

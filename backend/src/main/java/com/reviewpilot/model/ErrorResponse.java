@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
  * Uniform error envelope returned by every {@code @ExceptionHandler} in
- * {@link com.reviewpilot.controller.ReviewController}. The frontend axios
+ * the HTTP boundary. The frontend axios
  * interceptor (PR#7) reads exactly the {@code error} field, so locking the
  * field name as a typed record prevents an accidental rename from breaking
  * the SPA's error display.

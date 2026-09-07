@@ -54,7 +54,7 @@ public class DeepSeekProvider implements ModelProvider {
     @Override
     public AgentResponse chat(List<Message> messages, List<Tool> tools) {
         if (!props.isConfigured()) {
-            throw new AiProviderException(
+            throw new AiAuthenticationException(
                     "DeepSeek API key is not set. Export DEEPSEEK_API_KEY before calling /api/review.");
         }
 
@@ -63,9 +63,9 @@ public class DeepSeekProvider implements ModelProvider {
         body.put("temperature", props.temperature());
         body.put("max_tokens", props.maxTokens());
         body.put("stream", false);
-        body.put("messages", messages.stream().map(Message::toApiMap).toList());
+        body.put("messages", messages.stream().map(OpenAiMessageMapper::message).toList());
         if (tools != null && !tools.isEmpty()) {
-            body.put("tools", tools.stream().map(Tool::toApiMap).toList());
+            body.put("tools", tools.stream().map(OpenAiMessageMapper::tool).toList());
         }
 
         DsCompletion response = callWithRetry(body, "chat");
@@ -97,7 +97,7 @@ public class DeepSeekProvider implements ModelProvider {
     @Override
     public String complete(String systemPrompt, String userPrompt) {
         if (!props.isConfigured()) {
-            throw new AiProviderException(
+            throw new AiAuthenticationException(
                     "DeepSeek API key is not set. Export DEEPSEEK_API_KEY before calling /api/review.");
         }
 

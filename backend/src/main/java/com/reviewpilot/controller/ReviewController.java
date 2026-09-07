@@ -1,14 +1,7 @@
 package com.reviewpilot.controller;
 
-import com.reviewpilot.model.ErrorResponse;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.pipeline.ReviewPipeline;
-import com.reviewpilot.service.ai.AiProviderException;
-import com.reviewpilot.service.github.GithubAuthException;
-import com.reviewpilot.service.github.GithubPrNotFoundException;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,13 +24,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class ReviewController {
-
     private final ReviewPipeline pipeline;
 
     public ReviewController(ReviewPipeline pipeline) {
         this.pipeline = pipeline;
     }
 
+    /** HTTP body; URL semantics are validated by the application use case. */
     public record ReviewRequest(String prUrl) {}
 
     @PostMapping("/review")
@@ -48,26 +41,4 @@ public class ReviewController {
         return pipeline.review(request.prUrl());
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleBadInput(IllegalArgumentException e) {
-        return ResponseEntity.badRequest().body(ErrorResponse.of(e.getMessage()));
-    }
-
-    @ExceptionHandler(GithubPrNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(GithubPrNotFoundException e) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of(e.getMessage()));
-    }
-
-    @ExceptionHandler(GithubAuthException.class)
-    public ResponseEntity<ErrorResponse> handleGithubAuth(GithubAuthException e) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ErrorResponse.of(e.getMessage()));
-    }
-
-    @ExceptionHandler(AiProviderException.class)
-    public ResponseEntity<ErrorResponse> handleAi(AiProviderException e) {
-        // Missing-key case starts with this prefix in DeepSeekProvider.
-        boolean isMissingKey = e.getMessage() != null && e.getMessage().startsWith("DeepSeek API key is not set");
-        HttpStatus status = isMissingKey ? HttpStatus.UNAUTHORIZED : HttpStatus.BAD_GATEWAY;
-        return ResponseEntity.status(status).body(ErrorResponse.of(e.getMessage()));
-    }
 }

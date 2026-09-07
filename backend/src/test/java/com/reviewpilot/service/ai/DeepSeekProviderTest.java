@@ -22,6 +22,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DeepSeekProviderTest {
 
+    @Test
+    void tool_arguments_round_trip_quotes_newlines_and_nested_values() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}"));
+        var arguments = java.util.Map.<String, Object>of(
+                "query", "name=\"quoted\"\nC:\\src", "options", java.util.Map.of("limit", 2));
+        providerWithKey("test-key").chat(java.util.List.of(
+                Message.assistant("", java.util.List.of(new ToolCall("c1", "search_repo", arguments))),
+                Message.tool("c1", "done")), java.util.List.of());
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode body = mapper.readTree(server.takeRequest().getBody().readUtf8());
+        JsonNode decoded = mapper.readTree(body.path("messages").get(0)
+                .path("tool_calls").get(0).path("function").path("arguments").asText());
+        assertEquals("name=\"quoted\"\nC:\\src", decoded.path("query").asText());
+        assertEquals(2, decoded.path("options").path("limit").asInt());
+    }
+
     private MockWebServer server;
 
     @BeforeEach

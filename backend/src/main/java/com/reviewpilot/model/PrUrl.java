@@ -60,7 +60,4 @@ public record PrUrl(String owner, String repo, int number) {
         return new PrUrl(owner, repo, number);
     }
 
-    public String apiPath() {
-        return "/repos/" + owner + "/" + repo + "/pulls/" + number;
-    }
 }

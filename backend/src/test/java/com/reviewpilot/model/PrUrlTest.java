@@ -13,7 +13,7 @@ class PrUrlTest {
         assertEquals("spring-projects", pr.owner());
         assertEquals("spring-boot", pr.repo());
         assertEquals(12345, pr.number());
-        assertEquals("/repos/spring-projects/spring-boot/pulls/12345", pr.apiPath());
+        assertEquals("/repos/spring-projects/spring-boot/pulls/12345", com.reviewpilot.service.github.GithubApiPaths.pullRequest(pr));
     }
 
     @Test

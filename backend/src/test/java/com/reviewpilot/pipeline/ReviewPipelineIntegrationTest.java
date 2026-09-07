@@ -1,5 +1,13 @@
 package com.reviewpilot.pipeline;
 
+import com.reviewpilot.service.ai.ReviewReplyReader;
+import com.reviewpilot.service.ai.RepositorySearchService;
+import com.reviewpilot.service.prompt.CriticPromptBuilder;
+import com.reviewpilot.service.critic.CriticAgent;
+import com.reviewpilot.service.context.RiskFileContextLoader;
+import com.reviewpilot.service.github.GithubCodeSearcher;
+import com.reviewpilot.service.risk.RiskMerger;
+
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.service.ai.AgentResponse;
 import com.reviewpilot.service.ai.Message;
@@ -51,7 +59,7 @@ class ReviewPipelineIntegrationTest {
         FileClassifier classifier = new FileClassifier();
         RiskDetector riskDetector = new RiskDetector(List.of(), classifier);
         ContextLoader contextLoader = new ContextLoader();
-        FileContentFetcher contentFetcher = new FileContentFetcher(gh, false); // disabled
+        FileContentFetcher contentFetcher = new FileContentFetcher(gh);
         PromptBuilder promptBuilder = new PromptBuilder();
         ModelProvider modelStub = new ModelProvider() {
             public String name() { return "test"; }
@@ -64,12 +72,14 @@ class ReviewPipelineIntegrationTest {
                     List.of(), 0, 0);
             }
         };
-        ReflectionOrchestrator orchestrator = new ReflectionOrchestrator(modelStub, false);
-        ReviewAgent reviewAgent = new ReviewAgent(modelStub, new ToolRegistry(fetcher, contentFetcher),
-                promptBuilder, 8, 64000);
+        ReflectionOrchestrator orchestrator = new ReflectionOrchestrator(modelStub,
+                new CriticAgent(modelStub, new CriticPromptBuilder()),
+                new CriticPromptBuilder(), new ReviewReplyReader(), false);
+        ReviewAgent reviewAgent = new ReviewAgent(modelStub, new ToolRegistry(new RepositorySearchService(new GithubCodeSearcher(gh)), contentFetcher),
+                promptBuilder, new ReviewReplyReader(), 8, 64000);
 
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector, contextLoader,
-                contentFetcher, promptBuilder, modelStub, reviewAgent, orchestrator);
+                new RiskFileContextLoader(contentFetcher, false), promptBuilder, modelStub, reviewAgent, orchestrator, new RiskMerger());
     }
 
     @AfterEach

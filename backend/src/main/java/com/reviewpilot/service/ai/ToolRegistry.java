@@ -2,38 +2,24 @@ package com.reviewpilot.service.ai;
 
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.service.github.FileContentFetcher;
-import com.reviewpilot.service.github.GithubPrFetcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Registry of tools available to the ReAct agent. Each tool is a function
- * that takes arguments from the LLM's tool_call and returns a string.
- *
- * <p>Thread-safe: the single @Component instance accepts {@link PrUrl} as a
- * method parameter (not constructor state), avoiding per-request races.
- * Search results are cached per (owner, repo, query) and rate-limited at
- * 25 calls/minute.
- */
+/** Available tool definitions, dispatch, and tool-facing error normalization. */
 @Component
 public class ToolRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(ToolRegistry.class);
 
-    private final GithubPrFetcher prFetcher;
+    private final RepositorySearchService searchService;
     private final FileContentFetcher fileContentFetcher;
-    private final Map<String, String> searchCache = new ConcurrentHashMap<>();
-    private final AtomicInteger searchCount = new AtomicInteger(0);
-    private volatile long windowStart = System.currentTimeMillis();
 
-    public ToolRegistry(GithubPrFetcher prFetcher, FileContentFetcher fileContentFetcher) {
-        this.prFetcher = prFetcher;
+    public ToolRegistry(RepositorySearchService searchService, FileContentFetcher fileContentFetcher) {
+        this.searchService = searchService;
         this.fileContentFetcher = fileContentFetcher;
     }
 
@@ -68,7 +54,7 @@ public class ToolRegistry {
         try {
             return switch (call.name()) {
                 case "fetch_file_content" -> fetchFile(pr, call.arguments());
-                case "search_repo" -> searchRepo(pr, call.arguments());
+                case "search_repo" -> searchService.search(pr, (String) call.arguments().get("query"));
                 default -> "Unknown tool: " + call.name();
             };
         } catch (RuntimeException e) {
@@ -85,29 +71,4 @@ public class ToolRegistry {
         return "File: " + path + "\n```\n" + content + "\n```";
     }
 
-    private String searchRepo(PrUrl pr, Map<String, Object> args) {
-        String query = (String) args.get("query");
-        if (query == null || query.isBlank()) return "Error: query is required";
-
-        String cacheKey = pr.owner() + "/" + pr.repo() + "/" + query;
-        String cached = searchCache.get(cacheKey);
-        if (cached != null) return "(cached) " + cached;
-
-        // Rate limit: 25 calls per 60s sliding window
-        long now = System.currentTimeMillis();
-        if (now - windowStart > 60_000) {
-            windowStart = now;
-            searchCount.set(0);
-        }
-        if (searchCount.incrementAndGet() > 25) {
-            return "Search rate limited. Please use the information you already have to continue the review.";
-        }
-
-        String result = prFetcher.searchCode(pr, query);
-        if (result == null || result.isBlank()) {
-            result = "No results found for: " + query;
-        }
-        searchCache.put(cacheKey, result);
-        return result;
-    }
 }

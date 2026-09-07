@@ -6,7 +6,7 @@
 
 **V3 ReAct Agent 已完成**。LLM 从单次调用升级为 ReAct（Reasoning + Acting）自主循环——Agent 可以调用 `fetch_file_content` 和 `search_repo` 两个工具获取更多上下文，最多 8 轮、4 次工具调用后收敛。Critic Agent 对输出做 5 维质检（HALLUCINATION / MISSING / SEVERITY / DUPLICATE / CONSISTENCY），发现问题自动触发修订。9 条风险规则、前端 Vite 构建均可用。
 
-测试：`mvn test` → 147/147 通过；`vite build` 成功。
+后端分层重构验证：`mvn clean test` → 162/162 通过。前端代码未变；历史 `vite build` 成功记录保留，本次未重跑前端构建。
 
 ## 视频演示
 【5月31日 (1)-哔哩哔哩】 https://b23.tv/v4wC0Gg
@@ -41,7 +41,7 @@ HTTP POST /api/review { prUrl }
 │  3. FileClassifier            6 类启发式分类          │
 │  4. RiskDetector              9 条规则，patch-only    │
 │  5. ContextLoader             hunk ±3 行切片          │
-│  6. FileContentFetcher        风险文件全量拉取         │
+│  6. RiskFileContextLoader     风险文件上下文补充         │
 │                                                       │
 │  ┌── ReAct Agent Loop (ReviewAgent) ────────────┐    │
 │  │  System Prompt + Diff → LLM decides:          │    │
@@ -61,7 +61,8 @@ HTTP POST /api/review { prUrl }
 └──────────────────────────────────────────────────────┘
 ```
 
-完整带 Mermaid 图与各阶段输入输出示例：见 [`docs/architecture.md`](docs/architecture.md)。
+当前分层与调用流程：见 [`docs/architecture.md`](docs/architecture.md)。
+逐类职责与重构记录：见 [`docs/java-layering-review.md`](docs/java-layering-review.md)。
 Prompt 模板与 Token 策略：见 [`docs/prompt-strategy.md`](docs/prompt-strategy.md)。
 
 **核心工程亮点**：
@@ -69,7 +70,7 @@ Prompt 模板与 Token 策略：见 [`docs/prompt-strategy.md`](docs/prompt-stra
 - **ReAct Agent 自主循环**：LLM 不再是被动的一次性调用，而是主动决定"我需要看哪个文件的完整代码""我需要搜索哪些符号"，最多 8 轮自主探索后输出最终审查结果。
 - **Critic 质检 + 修订**：Agent 输出经 Critic 做 5 维质量检查（幻觉/遗漏/严重度/重复/一致性），发现问题自动触发修订轮次。
 - **规则 + AI 双层架构**：9 条确定性规则稳定命中已知模式（不依赖 LLM 心情），LLM 专注做规则抓不到的语义/架构层判断。规则按 `(file,line,message)` 去重后与 AI risks 合并，规则优先。
-- **Tool Registry**：线程安全的工具调度器，`search_repo` 限流 25 次/分钟 + 缓存，`fetch_file_content` 通过 GitHub Contents API 拉取完整文件。
+- **Tool Registry**：工具调度器，搜索策略交由 `RepositorySearchService` 提供进程内限流与缓存，`fetch_file_content` 通过 GitHub Contents API 拉取完整文件。
 
 ## 本地启动
 
@@ -208,12 +209,12 @@ curl -X POST http://localhost:8080/api/review \
 | `ContextLoader` | 仅依赖 `DiffHunk` 自带 ±3 行 context，不调 GitHub raw API |
 | `PromptTemplate` 6 条 guidance | 按文件类型手写的 review 关键词清单 |
 | `PromptBuilder` 分组+预算 | 6k/file + 60k/total 双重护栏 + 显式截断标记 |
-| `ReviewPipeline.parseModelReply` | 抗前导/尾随文字的 `extractJsonObject`；rule + AI risks 按 `(file,line,message)` 去重，rule 优先 |
-| `ReviewAgent` | ReAct 循环：message 构建 → token 预算管理 → 收敛机制（4 次工具调用后停发工具） → parseWithRetry |
-| `ToolRegistry` | 工具调度 + 限流（25 次/min 滑动窗口）+ 缓存 + 未知工具容错 |
+| `ReviewReplyReader` / `RiskMerger` | 统一审查 JSON 解析与格式恢复；按 `(file,line,message)` 合并去重，rule 优先 |
+| `ReviewAgent` | ReAct 循环：message 构建 → token 预算管理 → 收敛机制（4 次工具调用后停发工具） → 委托 ReviewReplyReader 解析；AgentReview 返回请求统计 |
+| `ToolRegistry` / `RepositorySearchService` | 分离工具分发与搜索缓存/计数窗口限流；失败不缓存为无结果 |
 | `ReflectionOrchestrator` + `CriticResult` | 5 维 Critic 质检（HALLUCINATION/MISSING/SEVERITY/DUPLICATE/CONSISTENCY）→ 解析失败重试 → 自动修订 |
 | `JsonReplyCleaner` | 统一 JSON 清洗（fence 剥离 + extractJsonObject），ReviewAgent 和 ReflectionOrchestrator 共享 |
-| `FileContentFetcher` | GitHub Contents API 完整文件拉取 + Base64 解码 + 8k 截断 |
+| `FileContentFetcher` / `RiskFileContextLoader` | 分离 GitHub 读取解码与风险文件批量补充、8k 截断策略 |
 | `ExceptionSwallowingRule` | catch X → throw new Y 类型洗白检测 |
 | `HardcodedSecretRule` / `InsecureRandomRule` / `WeakHashRule` | 硬编码密钥 / 不安全随机数 / 弱哈希检测 |
 | 前端 `ResultPanel/RiskList/SuggestionList` | 自写 Vue3 组件，仅依赖 Element Plus 标签/卡片基础组件 |

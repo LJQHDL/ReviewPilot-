@@ -1,7 +1,6 @@
 package com.reviewpilot.service.ai;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * A single message in a multi-turn LLM conversation. Supports all four
@@ -26,23 +25,4 @@ public record Message(String role, String content, String toolCallId,
         return new Message("tool", content, callId, null);
     }
 
-    /** Convert to the Map form expected by the OpenAI-compatible JSON body. */
-    public Map<String, Object> toApiMap() {
-        if ("tool".equals(role)) {
-            return Map.of("role", role, "tool_call_id", toolCallId != null ? toolCallId : "",
-                    "content", content != null ? content : "");
-        }
-        if (toolCalls != null && !toolCalls.isEmpty()) {
-            // Use null content (not empty string) — OpenAI-compatible APIs
-            // reject "" when tool_calls is present.
-            java.util.LinkedHashMap<String, Object> map = new java.util.LinkedHashMap<>();
-            map.put("role", role);
-            if (content != null && !content.isBlank()) {
-                map.put("content", content);
-            }
-            map.put("tool_calls", toolCalls.stream().map(ToolCall::toApiMap).toList());
-            return map;
-        }
-        return Map.of("role", role, "content", content);
-    }
 }

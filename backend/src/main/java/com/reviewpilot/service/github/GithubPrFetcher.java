@@ -36,7 +36,7 @@ public class GithubPrFetcher {
         List<GithubPrFile> raw;
         try {
             raw = github.get()
-                    .uri(pr.apiPath() + "/files?per_page=100")
+                    .uri(GithubApiPaths.pullRequest(pr) + "/files?per_page=100")
                     .retrieve()
                     .bodyToMono(PR_FILES)
                     .block();
@@ -63,7 +63,7 @@ public class GithubPrFetcher {
     public String fetchPrTitle(PrUrl pr) {
         try {
             PrMetadata meta = github.get()
-                    .uri(pr.apiPath())
+                    .uri(GithubApiPaths.pullRequest(pr))
                     .retrieve()
                     .bodyToMono(PrMetadata.class)
                     .block();
@@ -75,40 +75,6 @@ public class GithubPrFetcher {
 
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     private record PrMetadata(String title) {}
-
-    /**
-     * Search the PR's repository for a keyword. Returns up to 5 matching
-     * file paths with snippet context, or null on failure.
-     */
-    public String searchCode(PrUrl pr, String query) {
-        try {
-            String uri = "/search/code?q=" + query + "+repo:" + pr.owner() + "/" + pr.repo()
-                    + "&per_page=5";
-            SearchResult result = github.get()
-                    .uri(uri)
-                    .retrieve()
-                    .bodyToMono(SearchResult.class)
-                    .block();
-            if (result == null || result.items() == null || result.items().isEmpty()) {
-                return null;
-            }
-            StringBuilder sb = new StringBuilder();
-            for (SearchItem item : result.items()) {
-                sb.append(item.path()).append("\n");
-            }
-            return sb.toString();
-        } catch (RuntimeException e) {
-            return null;
-        }
-    }
-
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    private record SearchResult(
-            @com.fasterxml.jackson.annotation.JsonProperty("total_count") int totalCount,
-            List<SearchItem> items) {}
-
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    private record SearchItem(String path, String name) {}
 
     private FileChange toFileChange(GithubPrFile f) {
         boolean binary = f.patch() == null && !"removed".equals(f.status());

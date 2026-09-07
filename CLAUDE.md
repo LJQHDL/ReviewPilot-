@@ -38,14 +38,14 @@ The backend is a Spring Boot service where `POST /api/review` flows through:
 2. **ReAct Agent Loop** (`ReviewAgent`) — replaces the old single-shot LLM call. The LLM receives the diff + rule results + a list of available tools. It autonomously decides: fetch more file content? search the repo? When satisfied, it outputs the final review JSON. Loop bounded by `max-rounds` (default 8) and converges after 4 tool calls.
 3. **Tool Registry** (`ToolRegistry`) — two tools available to the LLM: `fetch_file_content(path)` and `search_repo(query)`. Thread-safe singleton; `search_repo` rate-limited at 25 calls/min with per-query caching.
 4. **Reflection Loop** (`ReflectionOrchestrator`) — CriticAgent checks the review for HALLUCINATION / MISSING / SEVERITY / DUPLICATE / CONSISTENCY. Issues trigger one revision round. Critic parse failures retry once then log ERROR (not silently swallowed).
-5. **Self-Correction** — `parseWithRetry()` in `ReviewAgent`: JSON parse failure → error feedback to LLM → one retry.
+5. **Self-Correction** — `ReviewReplyReader.read()` shared by initial review and revision: JSON parse failure → error feedback to LLM → one retry.
 
 ### Key components
 
 | Class | Package | Role |
 |---|---|---|
 | `ReviewAgent` | `service.ai` | ReAct loop: messages → chat() → parse tool_calls → execute → loop |
-| `ToolRegistry` | `service.ai` | Tool dispatch, rate limiting, caching |
+| `ToolRegistry` | `service.ai` | Tool dispatch; RepositorySearchService owns rate limiting/caching |
 | `ReflectionOrchestrator` | `service.critic` | Critic → Revision quality loop |
 | `ModelProvider` | `service.ai` | `complete()` (single-shot) + `chat()` (multi-turn with tools) |
 | `DeepSeekProvider` | `service.ai` | OpenAI-compatible `/v1/chat/completions` with `tools` field |
@@ -94,3 +94,7 @@ reviewpilot:
 | POST | `/api/review` | Full pipeline: ReAct agent review + Critic/Reflection |
 
 Error codes: `400` bad URL, `401` auth failure or missing key, `404` PR not found/private, `502` DeepSeek call failed.
+
+## Java responsibility boundaries (2026-09-07)
+
+See `docs/java-layering-review.md` for the full class inventory. Controllers call application use cases (`ReviewPipeline`, `PrFilesQuery`); `ApiExceptionHandler` maps errors by type. Keep review JSON recovery in `ReviewReplyReader`, risk merging in `RiskMerger`, provider wire conversion in `OpenAiMessageMapper`. `ReviewAgent.review` returns `AgentReview` with per-invocation statistics; never restore singleton last-request fields. Reflection returns a structured revision and delegates prompts to `CriticPromptBuilder` and inspection to `CriticAgent`. `RiskFileContextLoader` owns optional batch enrichment/truncation; `FileContentFetcher` owns GitHub IO. `GithubCodeSearcher` propagates failures so search policy cannot cache them as misses.

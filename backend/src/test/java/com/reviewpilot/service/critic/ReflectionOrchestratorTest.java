@@ -1,5 +1,8 @@
 package com.reviewpilot.service.critic;
 
+import com.reviewpilot.service.ai.ReviewReplyReader;
+import com.reviewpilot.service.prompt.CriticPromptBuilder;
+
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
 import com.reviewpilot.model.RiskLevel;
@@ -21,18 +24,31 @@ import static org.mockito.Mockito.when;
 
 class ReflectionOrchestratorTest {
 
+    @Test
+    void blank_critic_reply_is_retried_instead_of_crashing_review() {
+        when(modelProvider.complete(anyString(), anyString()))
+                .thenReturn("   ").thenReturn("{\"issues\":[]}");
+        var result = orchestrator.refine(sampleReview(), List.of(), "system", "user");
+        assertFalse(result.needsRevision());
+        verify(modelProvider, times(2)).complete(anyString(), anyString());
+    }
+
     private ModelProvider modelProvider;
     private ReflectionOrchestrator orchestrator;
 
     @BeforeEach
     void setup() {
         modelProvider = mock(ModelProvider.class);
-        orchestrator = new ReflectionOrchestrator(modelProvider, true);
+        orchestrator = new ReflectionOrchestrator(modelProvider,
+                new CriticAgent(modelProvider, new CriticPromptBuilder()),
+                new CriticPromptBuilder(), new ReviewReplyReader(), true);
     }
 
     @Test
     void disabled_returnsEmpty() {
-        ReflectionOrchestrator disabled = new ReflectionOrchestrator(modelProvider, false);
+        ReflectionOrchestrator disabled = new ReflectionOrchestrator(modelProvider,
+                new CriticAgent(modelProvider, new CriticPromptBuilder()),
+                new CriticPromptBuilder(), new ReviewReplyReader(), false);
 
         var result = disabled.refine(
                 sampleReview(),
@@ -76,8 +92,8 @@ class ReflectionOrchestratorTest {
         assertTrue(result.needsRevision());
         assertEquals(1, result.criticIssues().size());
         assertTrue(result.criticIssues().get(0).contains("MISSING"));
-        assertNotNull(result.revisionRaw());
-        assertTrue(result.revisionRaw().contains("fixed"));
+        assertNotNull(result.revision());
+        assertTrue(result.revision().summary().contains("fixed"));
         verify(modelProvider, times(2)).complete(anyString(), anyString());
     }
 

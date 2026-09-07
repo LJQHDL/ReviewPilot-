@@ -27,6 +27,58 @@ import static org.mockito.Mockito.when;
 
 class ReviewAgentTest {
 
+    @Test
+    void concurrent_reviews_keep_their_own_tool_counts() throws Exception {
+        var waiting = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        when(toolRegistry.getDefinitions()).thenReturn(List.of());
+        when(toolRegistry.execute(any(), any())).thenReturn("evidence");
+        when(modelProvider.chat(anyList(), anyList())).thenAnswer(invocation -> {
+            List<Message> messages = invocation.getArgument(0);
+            boolean firstReview = messages.get(1).content().contains("FIRST_REVIEW");
+            boolean hasEvidence = messages.stream().anyMatch(m -> "tool".equals(m.role()));
+            if (firstReview && !hasEvidence) {
+                return new AgentResponse("", List.of(new ToolCall("c1", "fetch_file_content",
+                        Map.of("path", "Foo.java"))), 0, 0);
+            }
+            if (firstReview) {
+                waiting.countDown();
+                assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            }
+            return new AgentResponse("{\"summary\":\"ok\"}", List.of(), 0, 0);
+        });
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var first = executor.submit(() -> reviewAgent.review(List.of(), Map.of(), List.of(),
+                    List.of(), "FIRST_REVIEW", new PrUrl("a", "b", 1)));
+            assertTrue(waiting.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            AgentReview second = reviewAgent.review(List.of(), Map.of(), List.of(),
+                    List.of(), "SECOND_REVIEW", new PrUrl("a", "b", 2));
+            release.countDown();
+            AgentReview completedFirst = first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(2, completedFirst.reactRounds());
+            assertEquals(1, completedFirst.toolCallCount());
+            assertEquals(1, second.reactRounds());
+            assertEquals(0, second.toolCallCount());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void context_limit_completion_returns_current_request_statistics() {
+        when(modelProvider.chat(anyList(), anyList())).thenReturn(
+                new AgentResponse("{\"summary\":\"limited\"}", List.of(), 0, 0));
+        var limited = new ReviewAgent(modelProvider, toolRegistry, promptBuilder,
+                new ReviewReplyReader(), 8, 1);
+        AgentReview outcome = limited.review(List.of(), Map.of(), List.of(), List.of(),
+                "title", new PrUrl("a", "b", 1));
+        assertEquals("limited", outcome.result().summary());
+        assertEquals(1, outcome.reactRounds());
+        assertEquals(0, outcome.toolCallCount());
+    }
+
     private ModelProvider modelProvider;
     private ToolRegistry toolRegistry;
     private PromptBuilder promptBuilder;
@@ -37,7 +89,7 @@ class ReviewAgentTest {
         modelProvider = mock(ModelProvider.class);
         toolRegistry = mock(ToolRegistry.class);
         promptBuilder = new PromptBuilder();
-        reviewAgent = new ReviewAgent(modelProvider, toolRegistry, promptBuilder, 8, 64000);
+        reviewAgent = new ReviewAgent(modelProvider, toolRegistry, promptBuilder, new ReviewReplyReader(), 8, 64000);
     }
 
     @Test
@@ -58,7 +110,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "add field",
-                PrUrl.parse("https://github.com/a/b/pull/1"));
+                PrUrl.parse("https://github.com/a/b/pull/1")).result();
 
         assertNotNull(r);
         assertEquals("ok", r.summary());
@@ -87,7 +139,7 @@ class ReviewAgentTest {
                 List.of(new RiskItem(RiskLevel.HIGH, "Foo.java", 5, "unreleased lock")),
                 List.of(),
                 "add lock",
-                PrUrl.parse("https://github.com/a/b/pull/1"));
+                PrUrl.parse("https://github.com/a/b/pull/1")).result();
 
         assertNotNull(r);
         assertEquals("done", r.summary());
@@ -114,7 +166,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1"));
+                PrUrl.parse("https://github.com/a/b/pull/1")).result();
 
         assertEquals("partial", r.summary());
     }
@@ -131,7 +183,7 @@ class ReviewAgentTest {
         when(toolRegistry.getDefinitions()).thenReturn(List.of());
 
         ReviewAgent tightAgent = new ReviewAgent(modelProvider, toolRegistry,
-                promptBuilder, 2, 64000);
+                promptBuilder, new ReviewReplyReader(), 2, 64000);
 
         FileChange fc = file("Foo.java", "+    int x;");
         ReviewResult r = tightAgent.review(
@@ -140,7 +192,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1"));
+                PrUrl.parse("https://github.com/a/b/pull/1")).result();
 
         assertNotNull(r);
     }
@@ -175,7 +227,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1"));
+                PrUrl.parse("https://github.com/a/b/pull/1")).result();
 
         assertEquals("converged", r.summary());
     }
