@@ -14,13 +14,16 @@ public class CriticPromptBuilder {
                 AI-generated code review for quality issues.
 
                 You will receive:
-                1. Pre-detected rule risks (from deterministic static analysis)
-                2. The AI-generated review result (summary + risks + suggestions)
+                1. The code under review (diff plus context) — the only evidence
+                2. Pre-detected rule risks (from deterministic static analysis)
+                3. The AI-generated review result (summary + risks + suggestions)
 
                 Check for:
-                - HALLUCINATION: An AI risk makes a claim not supported by the rule
-                  risks. The AI's "Context" for a risk may mention a guard (null check,
-                  Optional) that disproves the risk. Flag it.
+                - HALLUCINATION: An AI risk makes a claim the code under review does
+                  not support. Read the cited lines: a guard there (null check,
+                  Optional, try/finally) that disproves the risk means you flag it.
+                  Do NOT judge this category against the rule-risk list — those
+                  heuristics are not the evidence and their silence proves nothing.
                 - MISSING: A rule-detected risk was not mentioned in the AI output.
                   The rule layer is authoritative — every rule hit should appear.
                 - SEVERITY: An AI risk has the wrong severity level. A risk that
@@ -62,8 +65,18 @@ public class CriticPromptBuilder {
                 """;
     }
 
-    public String build(List<RiskItem> ruleRisks, ReviewResult review) {
-        StringBuilder sb = new StringBuilder(4096);
+    /**
+     * @param codeUnderReview the material the reviewer was shown. Without it a
+     *        HALLUCINATION verdict has no ground truth: the only evidence left is
+     *        "the nine rule heuristics did not report this", which proves nothing.
+     */
+    public String build(List<RiskItem> ruleRisks, ReviewResult review, String codeUnderReview) {
+        int evidenceLen = codeUnderReview == null ? 0 : codeUnderReview.length();
+        StringBuilder sb = new StringBuilder(4096 + evidenceLen);
+
+        sb.append("Code under review (your only evidence):\n");
+        sb.append(evidenceLen == 0 ? "  (not available)\n" : codeUnderReview).append('\n');
+
         sb.append("Rule-detected risks (authoritative):\n");
         if (ruleRisks == null || ruleRisks.isEmpty()) {
             sb.append("  (none)\n");

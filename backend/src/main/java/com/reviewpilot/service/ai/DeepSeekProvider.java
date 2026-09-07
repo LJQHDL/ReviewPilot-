@@ -133,7 +133,10 @@ public class DeepSeekProvider implements ModelProvider {
      * are NOT retried and fail immediately.
      */
     private DsCompletion callWithRetry(Map<String, Object> body, String caller) {
-        int maxRetries = 2;
+        // Cost of one call is timeout x (maxRetries + 1) plus backoff, and nothing can
+        // preempt it once started — these two numbers decide how real the request
+        // budget in ReviewPipeline is.
+        int maxRetries = props.maxRetries();
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 return webClient.post()

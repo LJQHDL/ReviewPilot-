@@ -28,7 +28,8 @@ public record DeepSeekProperties(
         String model,
         Duration timeout,
         Integer maxTokens,
-        Double temperature
+        Double temperature,
+        Integer maxRetries
 ) {
 
     public DeepSeekProperties {
@@ -49,6 +50,9 @@ public record DeepSeekProperties(
         }
         if (temperature == null || temperature < 0) {
             temperature = 0.2;
+        }
+        if (maxRetries == null || maxRetries < 0) {
+            maxRetries = 1;
         }
     }
 

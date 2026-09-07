@@ -1,6 +1,7 @@
 package com.reviewpilot.service.ai;
 
 import com.reviewpilot.model.PrUrl;
+import com.reviewpilot.model.Deadline;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
 import com.reviewpilot.model.RiskLevel;
@@ -50,10 +51,10 @@ class ReviewAgentTest {
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var first = executor.submit(() -> reviewAgent.review(List.of(), Map.of(), List.of(),
-                    List.of(), "FIRST_REVIEW", new PrUrl("a", "b", 1)));
+                    List.of(), "FIRST_REVIEW", new PrUrl("a", "b", 1), Deadline.NONE));
             assertTrue(waiting.await(5, java.util.concurrent.TimeUnit.SECONDS));
             AgentReview second = reviewAgent.review(List.of(), Map.of(), List.of(),
-                    List.of(), "SECOND_REVIEW", new PrUrl("a", "b", 2));
+                    List.of(), "SECOND_REVIEW", new PrUrl("a", "b", 2), Deadline.NONE);
             release.countDown();
             AgentReview completedFirst = first.get(5, java.util.concurrent.TimeUnit.SECONDS);
             assertEquals(2, completedFirst.reactRounds());
@@ -73,7 +74,7 @@ class ReviewAgentTest {
         var limited = new ReviewAgent(modelProvider, toolRegistry, promptBuilder,
                 new ReviewReplyReader(), 8, 1);
         AgentReview outcome = limited.review(List.of(), Map.of(), List.of(), List.of(),
-                "title", new PrUrl("a", "b", 1));
+                "title", new PrUrl("a", "b", 1), Deadline.NONE);
         assertEquals("limited", outcome.result().summary());
         assertEquals(1, outcome.reactRounds());
         assertEquals(0, outcome.toolCallCount());
@@ -110,7 +111,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "add field",
-                PrUrl.parse("https://github.com/a/b/pull/1")).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
 
         assertNotNull(r);
         assertEquals("ok", r.summary());
@@ -139,7 +140,7 @@ class ReviewAgentTest {
                 List.of(new RiskItem(RiskLevel.HIGH, "Foo.java", 5, "unreleased lock")),
                 List.of(),
                 "add lock",
-                PrUrl.parse("https://github.com/a/b/pull/1")).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
 
         assertNotNull(r);
         assertEquals("done", r.summary());
@@ -166,7 +167,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1")).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
 
         assertEquals("partial", r.summary());
     }
@@ -192,7 +193,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1")).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
 
         assertNotNull(r);
     }
@@ -227,7 +228,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1")).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
 
         assertEquals("converged", r.summary());
     }

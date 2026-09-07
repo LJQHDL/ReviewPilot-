@@ -55,11 +55,11 @@ class ReviewPipelineIntegrationTest {
         WebClient gh = WebClient.builder().baseUrl(base)
                 .defaultHeader("Accept", "application/vnd.github+json").build();
 
-        GithubPrFetcher fetcher = new GithubPrFetcher(gh, new DiffParser());
+        GithubPrFetcher fetcher = new GithubPrFetcher(gh, new DiffParser(), new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0));
         FileClassifier classifier = new FileClassifier();
         RiskDetector riskDetector = new RiskDetector(List.of(), classifier);
         ContextLoader contextLoader = new ContextLoader();
-        FileContentFetcher contentFetcher = new FileContentFetcher(gh);
+        FileContentFetcher contentFetcher = new FileContentFetcher(gh, new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0));
         PromptBuilder promptBuilder = new PromptBuilder();
         ModelProvider modelStub = new ModelProvider() {
             public String name() { return "test"; }
@@ -73,13 +73,13 @@ class ReviewPipelineIntegrationTest {
             }
         };
         ReflectionOrchestrator orchestrator = new ReflectionOrchestrator(modelStub,
-                new CriticAgent(modelStub, new CriticPromptBuilder()),
+                new CriticAgent(modelStub, new CriticPromptBuilder(), new com.fasterxml.jackson.databind.ObjectMapper()),
                 new CriticPromptBuilder(), new ReviewReplyReader(), false);
-        ReviewAgent reviewAgent = new ReviewAgent(modelStub, new ToolRegistry(new RepositorySearchService(new GithubCodeSearcher(gh)), contentFetcher),
+        ReviewAgent reviewAgent = new ReviewAgent(modelStub, new ToolRegistry(new RepositorySearchService(new GithubCodeSearcher(gh, new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 25, 256), contentFetcher),
                 promptBuilder, new ReviewReplyReader(), 8, 64000);
 
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector, contextLoader,
-                new RiskFileContextLoader(contentFetcher, false), promptBuilder, modelStub, reviewAgent, orchestrator, new RiskMerger());
+                new RiskFileContextLoader(contentFetcher, false), promptBuilder, modelStub, reviewAgent, orchestrator, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
     }
 
     @AfterEach

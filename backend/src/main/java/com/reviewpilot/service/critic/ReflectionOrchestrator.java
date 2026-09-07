@@ -47,6 +47,10 @@ public class ReflectionOrchestrator {
      * Run the reflection loop: Critic → optionally Revision.
      * When disabled via config, returns an empty result immediately so the
      * pipeline serves the original review without extra LLM calls.
+     *
+     * <p>{@code userPrompt} doubles as the code the critic judges against, and the
+     * revision is only adopted if it parses — a reply that never became JSON must
+     * not replace a review that did.
      */
     public RefinementResult refine(ReviewResult v0, List<RiskItem> ruleRisks,
                                     String systemPrompt, String userPrompt) {
@@ -55,7 +59,7 @@ public class ReflectionOrchestrator {
         }
 
         // Step 1: Run the Critic (with retry on parse failure)
-        CriticResult critic = criticAgent.inspect(v0, ruleRisks);
+        CriticResult critic = criticAgent.inspect(v0, ruleRisks, userPrompt);
 
         if (!critic.needsRevision()) {
             log.debug("Critic found no issues — review passes on first attempt");
@@ -72,9 +76,13 @@ public class ReflectionOrchestrator {
         if (revisionRaw == null || revisionRaw.isBlank()) {
             return new RefinementResult(null, critic.issues());
         }
-        ReviewResult revision = replyReader.read(revisionRaw, feedback ->
-                modelProvider.complete(revisionSystem + "\n\n" + feedback, userPrompt));
-        return new RefinementResult(revision, critic.issues());
+        return replyReader.readOrNull(revisionRaw, feedback ->
+                        modelProvider.complete(revisionSystem + "\n\n" + feedback, userPrompt))
+                .map(revision -> new RefinementResult(revision, critic.issues()))
+                .orElseGet(() -> {
+                    log.warn("Revision reply never parsed; serving the unrevised review");
+                    return new RefinementResult(null, critic.issues());
+                });
     }
 
 }

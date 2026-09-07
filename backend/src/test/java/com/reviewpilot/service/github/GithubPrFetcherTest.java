@@ -18,6 +18,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,20 +27,47 @@ class GithubPrFetcherTest {
 
     private MockWebServer server;
     private GithubPrFetcher fetcher;
+    private WebClient client;
+    private String base;
 
     @BeforeEach
     void start() throws Exception {
         server = new MockWebServer();
         server.start();
-        WebClient client = WebClient.builder()
-                .baseUrl(server.url("/").toString())
+        base = server.url("/").toString();
+        client = WebClient.builder()
+                .baseUrl(base)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
                 .build();
-        // GithubProperties is wired here only for parity with production config;
-        // the WebClient above is what the fetcher will actually use.
-        new GithubProperties("https://api.github.com", "test-token");
-        fetcher = new GithubPrFetcher(client, new DiffParser());
+        fetcher = new GithubPrFetcher(client, new DiffParser(), props(3));
+    }
+
+    private GithubProperties props(int maxFilePages) {
+        return new GithubProperties(base, "test-token", java.util.List.of(),
+                java.time.Duration.ofSeconds(30), maxFilePages);
+    }
+
+    private GithubPrFetcher fetcherWithPageCap(int maxFilePages) {
+        return new GithubPrFetcher(client, new DiffParser(), props(maxFilePages));
+    }
+
+    private void okJson(String body) {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .setBody(body));
+    }
+
+    /** A /files page carrying exactly count entries. */
+    private static String filesJson(int count) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < count; i++) {
+            if (i > 0) sb.append(',');
+            sb.append("{\"filename\":\"F").append(i)
+              .append(".java\",\"status\":\"modified\",\"additions\":1,\"deletions\":0}");
+        }
+        return sb.append(']').toString();
     }
 
     @AfterEach
@@ -81,7 +109,7 @@ class GithubPrFetcherTest {
                 .setBody(body));
 
         PrUrl pr = PrUrl.parse("https://github.com/owner/repo/pull/42");
-        List<FileChange> files = fetcher.fetchFiles(pr);
+        List<FileChange> files = fetcher.fetchFiles(pr).files();
 
         assertEquals(2, files.size());
 
@@ -101,7 +129,7 @@ class GithubPrFetcherTest {
         assertTrue(img.hunks().isEmpty());
 
         RecordedRequest req = server.takeRequest();
-        assertEquals("/repos/owner/repo/pulls/42/files?per_page=100", req.getPath());
+        assertEquals("/repos/owner/repo/pulls/42/files?per_page=100&page=1", req.getPath());
         assertEquals("Bearer test-token", req.getHeader("Authorization"));
         assertNotNull(req.getHeader("Accept"));
         assertTrue(req.getHeader("Accept").contains("application/vnd.github+json"));
@@ -142,10 +170,39 @@ class GithubPrFetcherTest {
                 .setHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .setBody("[]"));
         PrUrl pr = PrUrl.parse("https://github.com/owner/repo/pull/1");
-        assertTrue(fetcher.fetchFiles(pr).isEmpty());
+        assertTrue(fetcher.fetchFiles(pr).files().isEmpty());
 
         // Confirm we still hit the correct path even when the PR has no files.
         RecordedRequest req = server.takeRequest();
-        assertEquals("/repos/owner/repo/pulls/1/files?per_page=100", req.getPath());
+        assertEquals("/repos/owner/repo/pulls/1/files?per_page=100&page=1", req.getPath());
+    }
+
+    @Test
+    void walks_pages_until_a_short_page_arrives() throws Exception {
+        okJson(filesJson(100));
+        okJson(filesJson(7));
+
+        var r = fetcher.fetchFiles(PrUrl.parse("https://github.com/owner/repo/pull/42"));
+
+        assertEquals(107, r.files().size());
+        assertFalse(r.truncated(), "a short page means the PR was fully covered");
+        assertEquals("/repos/owner/repo/pulls/42/files?per_page=100&page=1", server.takeRequest().getPath());
+        assertEquals("/repos/owner/repo/pulls/42/files?per_page=100&page=2", server.takeRequest().getPath());
+    }
+
+    /**
+     * A single un-paged request capped every PR at 100 files while the result
+     * claimed to describe the whole PR. Hitting the cap must be visible.
+     */
+    @Test
+    void reports_truncated_instead_of_passing_off_a_partial_fetch_as_complete() throws Exception {
+        okJson(filesJson(100));   // a full page, and the cap is one page
+
+        var r = fetcherWithPageCap(1).fetchFiles(PrUrl.parse("https://github.com/owner/repo/pull/42"));
+
+        assertEquals(100, r.files().size());
+        assertTrue(r.truncated(), "reaching the page cap must surface to the caller");
+        server.takeRequest();
+        assertEquals(1, server.getRequestCount(), "must not keep fetching past the cap");
     }
 }

@@ -40,14 +40,14 @@ class ReflectionOrchestratorTest {
     void setup() {
         modelProvider = mock(ModelProvider.class);
         orchestrator = new ReflectionOrchestrator(modelProvider,
-                new CriticAgent(modelProvider, new CriticPromptBuilder()),
+                new CriticAgent(modelProvider, new CriticPromptBuilder(), new com.fasterxml.jackson.databind.ObjectMapper()),
                 new CriticPromptBuilder(), new ReviewReplyReader(), true);
     }
 
     @Test
     void disabled_returnsEmpty() {
         ReflectionOrchestrator disabled = new ReflectionOrchestrator(modelProvider,
-                new CriticAgent(modelProvider, new CriticPromptBuilder()),
+                new CriticAgent(modelProvider, new CriticPromptBuilder(), new com.fasterxml.jackson.databind.ObjectMapper()),
                 new CriticPromptBuilder(), new ReviewReplyReader(), false);
 
         var result = disabled.refine(

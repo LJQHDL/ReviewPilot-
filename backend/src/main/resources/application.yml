@@ -26,6 +26,17 @@ reviewpilot:
   github:
     api-base: https://api.github.com
     token: ${GITHUB_TOKEN:}
+    # Repositories this service will read with its own token, as owner/repo with *
+    # allowed (e.g. [octocat/Hello-World, my-org/*]). Empty means any repository a
+    # caller names — fine on localhost, not fine for a private-repo token on a host
+    # callers can reach.
+    allowed-repos: []
+    # Ceiling for a single GitHub HTTP call. Every GitHub call blocks a servlet
+    # thread, so this is what stops one stalled connection pinning a worker forever.
+    timeout: 10s
+    # Pages of /pulls/{n}/files to walk (100 files each). Beyond this the review is
+    # reported as truncated instead of silently partial.
+    max-file-pages: 3
   ai:
     provider: deepseek
     deepseek:
@@ -35,21 +46,39 @@ reviewpilot:
       timeout: 60s
       max-tokens: 4096
       temperature: 0.2
-    agent:
-      reflection:
-        # Toggle the Critic → Revision loop. When false, /api/review runs a
-        # single LLM pass (V1 behaviour). Enable for demos that show the
-        # quality-improvement loop; disable for low-latency daily use.
-        enabled: true
-        # Maximum revision attempts (currently fixed at 1 — multi-round is V3).
-        # max-rounds: 2
-      content-fetcher:
-        enabled: true
-      react:
-        # ReAct agent loop: max LLM turns (including tool calls) before forced
-        # completion. Lower values reduce latency; raise for complex multi-file PRs.
-        max-rounds: 8
-        # Rough character limit for the entire conversation context (system prompt +
-        # user prompt + tool call results + LLM responses). When exceeded, early
-        # tool results are truncated. Characters / 4 ≈ token estimate.
-        max-total-chars: 64000
+      # Transient network errors only; HTTP 4xx/5xx are never retried.
+      max-retries: 1
+  # These keys must sit directly under `reviewpilot` — the @Value expressions read
+  # `reviewpilot.agent.*`. Nesting them under `ai:` makes them silently inert, which
+  # is exactly how reflection.enabled=false stopped working once.
+  agent:
+    # Whole-request wall-clock budget. Bounds how many further model round-trips may
+    # START (checked per ReAct round, per tool call, and before reflection); it does
+    # NOT cap elapsed time, because an in-flight call runs to its own timeout.
+    request-budget-ms: 45000
+    reflection:
+      # Toggle the Critic → Revision loop. When false, /api/review runs a
+      # single LLM pass (V1 behaviour). Enable for demos that show the
+      # quality-improvement loop; disable for low-latency daily use.
+      enabled: true
+      # Maximum revision attempts (currently fixed at 1 — multi-round is V3).
+      # max-rounds: 2
+    content-fetcher:
+      enabled: true
+      # How many risky files get a full-file prefetch (each costs GitHub calls).
+      # Was uncapped: a PR with 300 flagged files issued 300 extra fetches.
+      max-prefetch-files: 5
+    tools:
+      # Search budget per repository per minute. Per repo on purpose: a process-wide
+      # counter let one busy PR starve every other review of search_repo.
+      search-limit-per-minute: 25
+      # Search results held at once; least used are evicted.
+      search-cache-entries: 256
+    react:
+      # ReAct agent loop: max LLM turns (including tool calls) before forced
+      # completion. Lower values reduce latency; raise for complex multi-file PRs.
+      max-rounds: 8
+      # Rough character limit for the entire conversation context (system prompt +
+      # user prompt + tool call results + LLM responses). When exceeded, early
+      # tool results are truncated. Characters / 4 ≈ token estimate.
+      max-total-chars: 64000

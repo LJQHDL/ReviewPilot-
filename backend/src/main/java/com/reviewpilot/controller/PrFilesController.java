@@ -1,7 +1,8 @@
 package com.reviewpilot.controller;
 
-import com.reviewpilot.service.diff.FileChange;
+import com.reviewpilot.controller.dto.PrFilesResponse;
 import com.reviewpilot.pipeline.PrFilesQuery;
+import com.reviewpilot.service.github.FetchedFiles;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -25,8 +26,13 @@ public class PrFilesController {
     }
 
     @GetMapping("/files")
-    public List<FileChange> files(@RequestParam("prUrl") String prUrl) {
-        return query.files(prUrl);
+    public PrFilesResponse files(@RequestParam("prUrl") String prUrl,
+                                 @RequestParam(name = "include", required = false) String include) {
+        boolean withPatch = "patch".equals(include);
+        FetchedFiles fetched = query.files(prUrl);
+        List<PrFilesResponse.FileEntry> entries = fetched.files().stream()
+                .map(f -> PrFilesResponse.FileEntry.of(f, withPatch))
+                .toList();
+        return new PrFilesResponse(entries, fetched.truncated());
     }
-
 }

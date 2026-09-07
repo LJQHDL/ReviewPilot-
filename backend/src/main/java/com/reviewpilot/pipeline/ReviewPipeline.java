@@ -1,5 +1,6 @@
 package com.reviewpilot.pipeline;
 
+import com.reviewpilot.model.Deadline;
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
@@ -13,12 +14,15 @@ import com.reviewpilot.service.context.ContextLoader;
 import com.reviewpilot.service.context.ContextSlice;
 import com.reviewpilot.service.diff.FileChange;
 import com.reviewpilot.service.context.RiskFileContextLoader;
+import com.reviewpilot.service.github.FetchedFiles;
 import com.reviewpilot.service.github.GithubPrFetcher;
+import com.reviewpilot.service.github.RepoAllowlist;
 import com.reviewpilot.service.prompt.PromptBuilder;
 import com.reviewpilot.service.critic.ReflectionOrchestrator;
 import com.reviewpilot.service.risk.RiskDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -41,6 +45,9 @@ public class ReviewPipeline {
     private final ReviewAgent reviewAgent;
     private final ReflectionOrchestrator orchestrator;
     private final RiskMerger riskMerger;
+    private final RepoAllowlist allowlist;
+    private final long requestBudgetMillis;
+    private final int maxPrefetchFiles;
 
     public ReviewPipeline(GithubPrFetcher fetcher,
                           FileClassifier classifier,
@@ -51,7 +58,10 @@ public class ReviewPipeline {
                           ModelProvider modelProvider,
                           ReviewAgent reviewAgent,
                           ReflectionOrchestrator orchestrator,
-                          RiskMerger riskMerger) {
+                          RiskMerger riskMerger,
+                          RepoAllowlist allowlist,
+                          @Value("${reviewpilot.agent.request-budget-ms:45000}") long requestBudgetMillis,
+                          @Value("${reviewpilot.agent.content-fetcher.max-prefetch-files:5}") int maxPrefetchFiles) {
         this.fetcher = fetcher;
         this.classifier = classifier;
         this.riskDetector = riskDetector;
@@ -62,14 +72,21 @@ public class ReviewPipeline {
         this.reviewAgent = reviewAgent;
         this.orchestrator = orchestrator;
         this.riskMerger = riskMerger;
+        this.allowlist = allowlist;
+        this.requestBudgetMillis = requestBudgetMillis;
+        this.maxPrefetchFiles = maxPrefetchFiles;
     }
 
     public ReviewResult review(String prUrlRaw) {
         long started = System.currentTimeMillis();
+        Deadline deadline = Deadline.of(requestBudgetMillis);
         PrUrl pr = PrUrl.parse(prUrlRaw);
+        allowlist.requireAllowed(pr);
 
-        List<FileChange> files = fetcher.fetchFiles(pr);
-        log.debug("PR {}/{}#{} → {} files", pr.owner(), pr.repo(), pr.number(), files.size());
+        FetchedFiles fetched = fetcher.fetchFiles(pr);
+        List<FileChange> files = fetched.files();
+        log.debug("PR {}/{}#{} → {} files{}", pr.owner(), pr.repo(), pr.number(),
+                files.size(), fetched.truncated() ? " (TRUNCATED at page cap)" : "");
 
         if (files.isEmpty()) {
             return new ReviewResult(
@@ -90,15 +107,19 @@ public class ReviewPipeline {
         List<ContextSlice> contexts = contextLoader.load(files, ruleRisks);
 
         // Fetch full file content for files that have rule-detected risks so the
-        // AI gets wider context than just the diff hunk ±3 lines.
+        // AI gets wider context than just the diff hunk ±3 lines. Capped: each
+        // entry is another pair of GitHub calls, so a risk-dense PR used to scale
+        // that cost with its finding count without limit.
         List<String> riskyPaths = ruleRisks.stream()
                 .map(RiskItem::file)
                 .filter(f -> f != null && !f.isBlank())
                 .distinct()
                 .toList();
-        Map<String, String> fullFileContents = riskyPaths.isEmpty()
-                ? Map.of()
-                : contentFetcher.fetchForRiskyFiles(pr, riskyPaths);
+        Map<String, String> fullFileContents =
+                (riskyPaths.isEmpty() || maxPrefetchFiles <= 0 || deadline.expired())
+                        ? Map.of()
+                        : contentFetcher.fetchForRiskyFiles(pr,
+                                riskyPaths.stream().limit(maxPrefetchFiles).toList());
         log.debug("Pipeline: {} files, {} rule risks, {} context slices, {} full-file fetches",
                 files.size(), ruleRisks.size(), contexts.size(), fullFileContents.size());
 
@@ -106,7 +127,7 @@ public class ReviewPipeline {
         long llmStart = System.currentTimeMillis();
         String prTitle = fetcher.fetchPrTitle(pr);
         AgentReview agentReview = reviewAgent.review(files, classifications, ruleRisks,
-                contexts, prTitle, pr);
+                contexts, prTitle, pr, deadline);
         ReviewResult parsed = agentReview.result();
         long llmMs = System.currentTimeMillis() - llmStart;
         String systemPrompt = promptBuilder.systemPrompt();
@@ -114,8 +135,11 @@ public class ReviewPipeline {
                 fullFileContents, prTitle);
 
         int agentRounds = 1;
-        ReflectionOrchestrator.RefinementResult refinement =
-                orchestrator.refine(parsed, ruleRisks, systemPrompt, userPrompt);
+        // Reflection is the optional quality pass: with the budget spent it is
+        // skipped outright rather than starting calls nobody will wait for.
+        ReflectionOrchestrator.RefinementResult refinement = deadline.expired()
+                ? new ReflectionOrchestrator.RefinementResult(null, List.of())
+                : orchestrator.refine(parsed, ruleRisks, systemPrompt, userPrompt);
         if (refinement.needsRevision()) {
             parsed = refinement.revision();
             agentRounds = 2;
@@ -125,9 +149,13 @@ public class ReviewPipeline {
 
         long totalMs = System.currentTimeMillis() - started;
         log.info("review_done pr={}/{} files={} rule_risks={} ai_risks={} merged_risks={} "
-                        + "full_files={} agent_rounds={} llm_ms={} total_ms={}",
+                        + "full_files={} agent_rounds={} react_rounds={} tool_calls={} "
+                        + "prompt_tokens={} completion_tokens={} truncated={} llm_ms={} total_ms={}",
                 pr.owner(), pr.repo(), files.size(), ruleRisks.size(), parsed.risks().size(),
-                mergedRisks.size(), fullFileContents.size(), agentRounds, llmMs, totalMs);
+                mergedRisks.size(), fullFileContents.size(), agentRounds,
+                agentReview.reactRounds(), agentReview.toolCallCount(),
+                agentReview.promptTokens(), agentReview.completionTokens(),
+                fetched.truncated(), llmMs, totalMs);
 
         return new ReviewResult(
                 prUrlRaw,
@@ -136,8 +164,10 @@ public class ReviewPipeline {
                 parsed.suggestions(),
                 parsed.keyFindings(),
                 new ReviewResult.Meta(modelProvider.name(), modelProvider.modelName(), files.size(),
-                        System.currentTimeMillis() - started, agentRounds,
-                        agentReview.reactRounds(), agentReview.toolCallCount())
+                        totalMs, agentRounds,
+                        agentReview.reactRounds(), agentReview.toolCallCount(),
+                        agentReview.promptTokens(), agentReview.completionTokens(),
+                        fetched.truncated())
         );
     }
 

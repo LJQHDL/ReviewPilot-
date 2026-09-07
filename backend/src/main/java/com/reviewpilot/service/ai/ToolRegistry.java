@@ -66,6 +66,12 @@ public class ToolRegistry {
     private String fetchFile(PrUrl pr, Map<String, Object> args) {
         String path = (String) args.get("path");
         if (path == null || path.isBlank()) return "Error: path is required";
+        // The path is model-authored, and the model is steered by PR content an
+        // attacker authors. The transport encodes segments, but refusing anything
+        // that is not a plain repo-relative path keeps the intent explicit.
+        if (path.startsWith("/") || path.contains("..") || path.indexOf('?') >= 0) {
+            return "Error: path must be a repository-relative path without '..' or '?'";
+        }
         String content = fileContentFetcher.fetchContent(pr, path);
         if (content == null) return "File not found or not accessible: " + path;
         return "File: " + path + "\n```\n" + content + "\n```";

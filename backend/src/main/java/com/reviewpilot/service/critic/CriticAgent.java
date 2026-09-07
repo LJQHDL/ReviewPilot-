@@ -20,15 +20,16 @@ public class CriticAgent {
     private static final Logger log = LoggerFactory.getLogger(CriticAgent.class);
     private final ModelProvider modelProvider;
     private final CriticPromptBuilder prompts;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json;
 
-    public CriticAgent(ModelProvider modelProvider, CriticPromptBuilder prompts) {
+    public CriticAgent(ModelProvider modelProvider, CriticPromptBuilder prompts, ObjectMapper json) {
         this.modelProvider = modelProvider;
         this.prompts = prompts;
+        this.json = json;
     }
 
-    public CriticResult inspect(ReviewResult review, List<RiskItem> ruleRisks) {
-        return runCritic(prompts.systemPrompt(), prompts.build(ruleRisks, review));
+    public CriticResult inspect(ReviewResult review, List<RiskItem> ruleRisks, String codeUnderReview) {
+        return runCritic(prompts.systemPrompt(), prompts.build(ruleRisks, review, codeUnderReview));
     }
 
     /** Run the Critic with up to one retry if the JSON reply is malformed. */

@@ -53,8 +53,8 @@ class ReviewPipelineFlowTest {
 
     @Test
     void revision_preserves_key_findings() {
-        when(fetcher.fetchFiles(any())).thenReturn(List.of(
-                new FileChange("Foo.java", "modified", 1, 0, false, "@@", List.of())));
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(
+                new FileChange("Foo.java", "modified", 1, 0, false, "@@", List.of()))));
         when(promptBuilder.systemPrompt()).thenReturn("system");
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("user");
         ModelProvider revisionModel = mock(ModelProvider.class);
@@ -63,10 +63,10 @@ class ReviewPipelineFlowTest {
                 "{\"summary\":\"fixed\",\"keyFindings\":[\"Keep this finding\"],\"risks\":[],\"suggestions\":[]}");
         var reflection = new ReflectionOrchestrator(revisionModel,
                 new CriticAgent(revisionModel,
-                        new CriticPromptBuilder()),
+                        new CriticPromptBuilder(), new com.fasterxml.jackson.databind.ObjectMapper()),
                 new CriticPromptBuilder(), new ReviewReplyReader(), true);
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector, contextLoader,
-                contentFetcher, promptBuilder, modelProvider, reviewAgent, reflection, new RiskMerger());
+                contentFetcher, promptBuilder, modelProvider, reviewAgent, reflection, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
         assertEquals(List.of("Keep this finding"),
                 pipeline.review("https://github.com/o/r/pull/1").keyFindings());
     }
@@ -98,26 +98,26 @@ class ReviewPipelineFlowTest {
         when(riskDetector.scan(any())).thenReturn(List.of());
         when(contextLoader.load(any(), any())).thenReturn(List.of());
         when(contentFetcher.fetchForRiskyFiles(any(), any())).thenReturn(Map.of());
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("", "stub", List.of(), List.of(),
                         new ReviewResult.Meta("deepseek", null, 0, 0)), 1, 0));
         when(orchestrator.refine(any(), any(), any(), any()))
                 .thenReturn(new ReflectionOrchestrator.RefinementResult(null, List.of()));
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector,
                 contextLoader, contentFetcher, promptBuilder, modelProvider,
-                reviewAgent, orchestrator, new RiskMerger());
+                reviewAgent, orchestrator, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
     }
 
     @Test
     void happy_path_invokes_collaborators_in_order_and_fills_meta() {
         FileChange fc = new FileChange("src/Foo.java", "modified",
                 3, 1, false, "@@ -1 +1 @@", List.of());
-        when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(fc)));
         when(promptBuilder.systemPrompt()).thenReturn("SYSTEM");
         when(promptBuilder.build(eq(List.of(fc)), any(), any(), any(), any(), any())).thenReturn("USER-PROMPT");
 
         String url = "https://github.com/owner/repo/pull/12";
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult(url, "refactor Foo", List.of(), List.of(),
                         new ReviewResult.Meta("deepseek", null, 1, 0)), 1, 0));
 
@@ -141,14 +141,14 @@ class ReviewPipelineFlowTest {
         order.verify(classifier).classify(fc);
         order.verify(riskDetector).scan(eq(List.of(fc)));
         order.verify(contextLoader).load(eq(List.of(fc)), eq(List.of()));
-        order.verify(reviewAgent).review(any(), any(), any(), any(), any(), any());
+        order.verify(reviewAgent).review(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
     void classifier_runs_once_per_file_and_classifications_reach_prompt_builder() {
         FileChange a = new FileChange("Foo.java", "modified", 1, 0, false, "@@", List.of());
         FileChange b = new FileChange("Bar.java", "modified", 1, 0, false, "@@", List.of());
-        when(fetcher.fetchFiles(any())).thenReturn(List.of(a, b));
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(a, b)));
         when(classifier.classify(a)).thenReturn(FileType.CONTROLLER);
         when(classifier.classify(b)).thenReturn(FileType.SERVICE);
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
@@ -178,12 +178,12 @@ class ReviewPipelineFlowTest {
         ContextSlice slice = new ContextSlice("Foo.java", 7, 17,
                 List.of("  7: x", "+ 12: lock", "  17: y"));
 
-        when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(fc)));
         when(riskDetector.scan(eq(List.of(fc)))).thenReturn(List.of(ruleRisk));
         when(contextLoader.load(eq(List.of(fc)), eq(List.of(ruleRisk)))).thenReturn(List.of(slice));
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("https://github.com/o/r/pull/1", "ok",
                         List.of(new RiskItem(RiskLevel.MEDIUM, "Foo.java", 42, "ai finding")),
                         List.of(),
@@ -217,11 +217,11 @@ class ReviewPipelineFlowTest {
         // the UI would show the same row twice.
         FileChange fc = new FileChange("Foo.java", "modified", 1, 0, false, "@@", List.of());
         RiskItem ruleRisk = new RiskItem(RiskLevel.HIGH, "Foo.java", 12, "lock without unlock");
-        when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(fc)));
         when(riskDetector.scan(any())).thenReturn(List.of(ruleRisk));
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("", "ok", List.of(
                         new RiskItem(RiskLevel.MEDIUM, "Foo.java", 12, "lock without unlock")),
                         List.of(), null), 1, 0));
@@ -234,7 +234,7 @@ class ReviewPipelineFlowTest {
 
     @Test
     void empty_pr_short_circuits_without_calling_prompt_or_model() {
-        when(fetcher.fetchFiles(any())).thenReturn(List.of());
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of()));
 
         ReviewResult r = pipeline.review("https://github.com/owner/repo/pull/9");
 
@@ -277,10 +277,10 @@ class ReviewPipelineFlowTest {
     @Test
     void model_reply_parsing_is_handled_by_review_agent() {
         FileChange fc = new FileChange("a", "modified", 1, 0, false, "@@", List.of());
-        when(fetcher.fetchFiles(any())).thenReturn(List.of(fc));
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(fc)));
         when(promptBuilder.systemPrompt()).thenReturn("S");
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("https://github.com/owner/repo/pull/1", "ok",
                         List.of(), List.of(),
                         new ReviewResult.Meta("deepseek", null, 1, 0)), 1, 0));

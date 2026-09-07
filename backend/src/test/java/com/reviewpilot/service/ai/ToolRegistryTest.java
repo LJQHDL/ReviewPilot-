@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,7 +30,7 @@ class ToolRegistryTest {
     void setup() {
         prFetcher = mock(GithubCodeSearcher.class);
         fileContentFetcher = mock(FileContentFetcher.class);
-        registry = new ToolRegistry(new RepositorySearchService(prFetcher), fileContentFetcher);
+        registry = new ToolRegistry(new RepositorySearchService(prFetcher, 25, 256), fileContentFetcher);
     }
 
     @Test
@@ -161,5 +162,21 @@ class ToolRegistryTest {
         assertEquals(2, defs.size());
         assertEquals("fetch_file_content", defs.get(0).name());
         assertEquals("search_repo", defs.get(1).name());
+    }
+
+    /**
+     * The path comes from the model, which is steered by PR content an attacker
+     * authors. It must not be able to escape the repository or override the ref.
+     */
+    @Test
+    void fetch_file_content_rejects_traversal_and_ref_override() {
+        String traversal = registry.execute(new ToolCall("c", "fetch_file_content",
+                java.util.Map.of("path", "../../elsewhere/secret.java")), pr);
+        String withQuery = registry.execute(new ToolCall("c", "fetch_file_content",
+                java.util.Map.of("path", "a.java?ref=other-branch")), pr);
+
+        assertTrue(traversal.startsWith("Error: path"), traversal);
+        assertTrue(withQuery.startsWith("Error: path"), withQuery);
+        verify(fileContentFetcher, never()).fetchContent(any(), anyString());
     }
 }
