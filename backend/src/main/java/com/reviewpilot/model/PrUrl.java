@@ -11,11 +11,19 @@ import java.util.Objects;
  */
 public record PrUrl(String owner, String repo, int number) {
 
+    /** GitHub's own owner/repo charset. Both values are interpolated into outbound
+     *  API paths, so nothing looser than this may reach them. */
+    private static final java.util.regex.Pattern NAME =
+            java.util.regex.Pattern.compile("[A-Za-z0-9._-]{1,100}");
+
     public PrUrl {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(repo, "repo");
         if (owner.isBlank() || repo.isBlank()) {
             throw new IllegalArgumentException("owner/repo must not be blank");
+        }
+        if (!NAME.matcher(owner).matches() || !NAME.matcher(repo).matches()) {
+            throw new IllegalArgumentException("Unexpected owner/repo in PR URL");
         }
         if (number <= 0) {
             throw new IllegalArgumentException("PR number must be positive, got " + number);

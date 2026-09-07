@@ -55,7 +55,7 @@ class DeepSeekProviderTest {
     private DeepSeekProvider providerWithKey(String key) {
         DeepSeekProperties props = new DeepSeekProperties(
                 server.url("/").toString(), key, "deepseek-chat",
-                Duration.ofSeconds(5), 256, 0.2);
+                Duration.ofSeconds(5), 256, 0.2, null);
         WebClient.Builder b = WebClient.builder()
                 .baseUrl(server.url("/").toString())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
@@ -145,7 +145,7 @@ class DeepSeekProviderTest {
                 "sk-supersecretkey-012345",
                 "deepseek-chat",
                 Duration.ofSeconds(60),
-                4096, 0.2);
+                4096, 0.2, null);
         String redacted = props.redactedKey();
         assertEquals("****2345", redacted);
         assertTrue(!redacted.contains("supersecret"));
@@ -153,7 +153,7 @@ class DeepSeekProviderTest {
 
     @Test
     void unset_key_renders_as_unset_marker() {
-        DeepSeekProperties props = new DeepSeekProperties(null, null, null, null, null, null);
+        DeepSeekProperties props = new DeepSeekProperties(null, null, null, null, null, null, null);
         assertEquals("(unset)", props.redactedKey());
         assertEquals(false, props.isConfigured());
     }
@@ -162,7 +162,7 @@ class DeepSeekProviderTest {
     void short_key_renders_as_four_stars_only() {
         DeepSeekProperties props = new DeepSeekProperties(
                 "https://api.deepseek.com", "abcd", "deepseek-chat",
-                Duration.ofSeconds(60), 4096, 0.2);
+                Duration.ofSeconds(60), 4096, 0.2, null);
         assertEquals("****", props.redactedKey());
     }
 }

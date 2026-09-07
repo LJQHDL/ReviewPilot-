@@ -25,18 +25,24 @@ public record ReviewResult(
 ) {
 
     /** Diagnostic metadata. {@code agentRounds} tracks how many LLM review
-     *  attempts were made (1 = single pass, 2 = critic triggered revision).
+     *  attempts were made (1 = single pass, 2 = a revision that actually parsed).
      *  {@code reactRounds} and {@code reactToolCalls} are the ReAct agent's
-     *  internal stats — useful for progress UX and debugging. */
+     *  internal stats — useful for progress UX and debugging.
+     *  {@code promptTokens}/{@code completionTokens} are the provider's real usage
+     *  for this request, which is what a cost figure should be built from rather
+     *  than the character estimate used mid-loop.
+     *  {@code filesTruncated} means the PR had more changed files than the fetcher
+     *  walks, so this review covers a subset only. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Meta(String provider, String model, int filesAnalyzed, long elapsedMs,
-                       int agentRounds, int reactRounds, int reactToolCalls) {
+                       int agentRounds, int reactRounds, int reactToolCalls,
+                       int promptTokens, int completionTokens, boolean filesTruncated) {
         public Meta(String provider, String model, int filesAnalyzed, long elapsedMs,
                     int agentRounds) {
-            this(provider, model, filesAnalyzed, elapsedMs, agentRounds, 0, 0);
+            this(provider, model, filesAnalyzed, elapsedMs, agentRounds, 0, 0, 0, 0, false);
         }
         public Meta(String provider, String model, int filesAnalyzed, long elapsedMs) {
-            this(provider, model, filesAnalyzed, elapsedMs, 1, 0, 0);
+            this(provider, model, filesAnalyzed, elapsedMs, 1, 0, 0, 0, 0, false);
         }
     }
 

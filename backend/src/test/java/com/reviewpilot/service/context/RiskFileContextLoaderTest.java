@@ -23,7 +23,7 @@ class RiskFileContextLoaderTest {
             server.enqueue(response(new ObjectMapper().writeValueAsString(Map.of("content", encoded))));
             server.enqueue(new MockResponse().setResponseCode(404));
             var fetcher = new FileContentFetcher(WebClient.builder()
-                    .baseUrl(server.url("/").toString()).build());
+                    .baseUrl(server.url("/").toString()).build(), new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0));
             var loader = new RiskFileContextLoader(fetcher, true);
             Map<String, String> result = loader.fetchForRiskyFiles(new PrUrl("o", "r", 1),
                     List.of("A.java", "missing.java"));
@@ -41,7 +41,7 @@ class RiskFileContextLoaderTest {
     void disabled_enrichment_performs_no_network_calls() throws Exception {
         try (var server = new MockWebServer()) {
             var fetcher = new FileContentFetcher(WebClient.builder()
-                    .baseUrl(server.url("/").toString()).build());
+                    .baseUrl(server.url("/").toString()).build(), new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0));
             assertTrue(new RiskFileContextLoader(fetcher, false)
                     .fetchForRiskyFiles(new PrUrl("o", "r", 1), List.of("A.java")).isEmpty());
             assertEquals(0, server.getRequestCount());

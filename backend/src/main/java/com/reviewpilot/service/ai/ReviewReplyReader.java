@@ -24,20 +24,31 @@ public class ReviewReplyReader {
     private final ObjectMapper json = new ObjectMapper();
 
     public ReviewResult read(String raw, Function<String, String> repair) {
+        return readOrNull(raw, repair).orElseGet(() -> {
+            String summary = extractField(raw, "summary");
+            if (summary.isEmpty()) summary = "(Parse error — see logs)";
+            return new ReviewResult("", summary, List.of(), List.of(), null);
+        });
+    }
+
+    /**
+     * Parse and, if needed, repair — but report failure instead of inventing a
+     * review. Callers that already hold a good result (the reflection revision)
+     * must be able to keep it rather than adopt a parse-error placeholder.
+     */
+    public java.util.Optional<ReviewResult> readOrNull(String raw, Function<String, String> repair) {
         try {
-            return parse(raw);
+            return java.util.Optional.of(parse(raw));
         } catch (JsonProcessingException first) {
             log.warn("Review JSON parse failed; requesting one format repair");
             String retry = repair.apply("Your previous response was not valid review JSON. Parser error: "
                     + first.getOriginalMessage() + ". Respond with a valid JSON object matching the review schema.");
             try {
-                return parse(retry);
+                return java.util.Optional.of(parse(retry));
             } catch (JsonProcessingException second) {
-                log.error("Review JSON repair failed; returning summary fallback");
-                String summary = extractField(raw, "summary");
-                if (summary.isEmpty()) summary = extractField(retry, "summary");
-                if (summary.isEmpty()) summary = "(Parse error — see logs)";
-                return new ReviewResult("", summary, List.of(), List.of(), null);
+                log.error("Review JSON repair failed ({}); caller decides how to degrade",
+                        second.getOriginalMessage());
+                return java.util.Optional.empty();
             }
         }
     }
