@@ -12,18 +12,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Search reuse and quota policy; transport belongs to {@link GithubCodeSearcher}.
+ * search_repo 工具的复用与配额策略层（HTTP 传输属于 {@link GithubCodeSearcher}）。
  *
- * <p>Both the budget and the cache are scoped <em>per repository</em> and bounded.
- * A single process-wide counter let one busy PR spend the entire allowance and
- * starve every concurrent review of {@code search_repo}, and the cache grew
- * forever on keys the model chooses.
+ * <p>限流预算与缓存都按仓库维度分片且设有上限：进程级单一计数器曾让一个高频 PR
+ * 耗尽全部配额、饿死其他并发评审的 search_repo，缓存也会随模型自选的键无限增长。
  */
 @Service
 public class RepositorySearchService {
 
     private static final long WINDOW_MILLIS = 60_000L;
-    /** Repositories tracked at once; an evicted window simply starts fresh. */
+    /** 同时跟踪的仓库数上限；被 LRU 逐出的仓库只是重新开窗，不影响正确性。 */
     private static final int MAX_TRACKED_REPOS = 512;
 
     private final GithubCodeSearcher searcher;
@@ -41,6 +39,7 @@ public class RepositorySearchService {
         this.searchWindows = lru(MAX_TRACKED_REPOS);
     }
 
+    /** 构造线程安全的 LRU Map（accessOrder=true + removeEldestEntry 实现逐出）。 */
     private static <V> Map<String, V> lru(int max) {
         return Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true) {
             @Override
@@ -50,10 +49,11 @@ public class RepositorySearchService {
         });
     }
 
+    /** 执行一次仓库代码搜索：参数校验 → 查缓存 → 按仓库限流 → 调上游 → 回填缓存。 */
     public String search(PrUrl pr, String query) {
         if (query == null || query.isBlank()) return "Error: query is required";
-        // Braces survive URI encoding yet WebClient would still read them as
-        // template placeholders, so they are refused rather than escaped.
+        // 花括号能通过 URI 编码，但 WebClient 仍会把它们当作模板占位符解析，
+        // 因此直接拒绝而不是转义。
         if (query.indexOf('{') >= 0 || query.indexOf('}') >= 0) {
             return "Error: query must not contain '{' or '}'";
         }
@@ -67,6 +67,7 @@ public class RepositorySearchService {
             window = searchWindows.computeIfAbsent(repo, k -> new Window());
         }
         if (!window.acquire(WINDOW_MILLIS, limitPerMinute)) {
+            // 限流时返回提示文本而非抛异常，让 LLM 基于已有信息继续评审
             return "Search rate limited. Please use the information you already have to continue the review.";
         }
 
@@ -79,13 +80,14 @@ public class RepositorySearchService {
     }
 
     /**
-     * Fixed window for one repository. Best-effort by design: losing a reset race
-     * costs a single call against a limit that exists to protect quota, not to be exact.
+     * 单个仓库的固定窗口计数器。刻意做成尽力而为：输掉重置竞争只会多放行一次调用，
+     * 而该限制的意义是保护配额，不是精确计数。
      */
     private static final class Window {
         private final AtomicLong startedAt = new AtomicLong(System.currentTimeMillis());
         private final AtomicInteger count = new AtomicInteger();
 
+        /** 窗口过期则原子地重置计数，然后占用一个名额；超额返回 false。 */
         boolean acquire(long windowMillis, int limit) {
             long now = System.currentTimeMillis();
             long start = startedAt.get();

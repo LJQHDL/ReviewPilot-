@@ -15,15 +15,14 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Flags use of cryptographically broken hash algorithms (MD5, SHA-1) on
- * ADDED lines. These are fine for checksums and non-security use, so the
- * rule fires at MEDIUM — the AI review step is expected to determine
- * whether the hash is used in a security context (password storage, digital
- * signatures, certificate verification).
+ * 标记 ADDED 行中对已被密码学攻破的哈希算法（MD5、SHA-1）的使用。
+ * 校验和等非安全场景用它们无妨，因此本规则只报 MEDIUM——
+ * 由 AI 评审环节判断该哈希是否用在安全上下文（密码存储、数字签名、证书校验）中。
  */
 @Component
 public class WeakHashRule implements RiskRule {
 
+    /** 匹配算法名字符串字面量与 MessageDigest.getInstance 两种写法。 */
     private static final Pattern WEAK_HASH = Pattern.compile(
             "(?i)\"(MD5|SHA-1|SHA1)\"|MessageDigest\\.getInstance\\(\"(MD5|SHA-1|SHA1)\"\\)");
 
@@ -32,11 +31,13 @@ public class WeakHashRule implements RiskRule {
         return "weak-hash";
     }
 
+    /** 只在业务代码（SERVICE/CONTROLLER）中检查。 */
     @Override
     public boolean appliesTo(FileType type) {
         return type == FileType.SERVICE || type == FileType.CONTROLLER;
     }
 
+    /** 逐 Java 文件、逐 ADDED 行做正则匹配。 */
     @Override
     public List<RiskItem> scan(FileChange change) {
         List<RiskItem> out = new ArrayList<>();

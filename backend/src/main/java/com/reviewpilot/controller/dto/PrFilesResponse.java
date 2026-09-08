@@ -6,25 +6,19 @@ import com.reviewpilot.service.diff.FileChange;
 import java.util.List;
 
 /**
- * View of {@code GET /api/pr/files}.
+ * GET /api/pr/files 的对外响应视图，与内部 FileChange 解耦以避免 diff 层字段泄漏成公共契约。
  *
- * <p>The endpoint used to serialize {@link FileChange} — the internal spine object
- * every pipeline stage consumes, including its parsed hunks and whole patches.
- * That made diff-layer field names part of the public contract, so any rename
- * there was a breaking API change, and a large PR shipped megabytes with no way
- * to ask for less.
- *
- * @param truncated whether the PR had more changed files than the fetcher walks;
- *                  when true, {@code files} is a subset and the review is partial
+ * @param truncated 变更文件数是否超出抓取页数上限；为 true 时 files 只是子集、评审结果不完整
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record PrFilesResponse(List<FileEntry> files, boolean truncated) {
 
-    /** @param patch the raw unified diff for this file; only present with {@code ?include=patch} */
+    /** @param patch 该文件的原始 unified diff，仅在 ?include=patch 时返回 */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record FileEntry(String filename, String status, int additions, int deletions,
                             int hunkCount, String patch) {
 
+        /** 从内部 FileChange 构造响应条目，按 withPatch 决定是否附带 patch。 */
         public static FileEntry of(FileChange f, boolean withPatch) {
             return new FileEntry(
                     f.filename(),

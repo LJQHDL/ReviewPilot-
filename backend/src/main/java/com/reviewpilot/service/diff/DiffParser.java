@@ -9,15 +9,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parses a unified diff {@code patch} (as returned by GitHub's PR files API)
- * into a list of {@link DiffHunk}s with line-number annotations.
+ * 把 GitHub PR files API 返回的 unified diff {@code patch} 解析为带行号标注的 {@link DiffHunk} 列表。
  * <p>
- * The parser intentionally accepts only the hunk-level subset GitHub emits:
- * a sequence of {@code @@ ... @@} headers followed by lines beginning with
- * {@code ' '}, {@code '+'} or {@code '-'}. File-level headers
- * ({@code diff --git}, {@code --- a/...}, {@code +++ b/...}) are not present in
- * the per-file {@code patch} field, so we don't try to handle them here.
- * "{@code \ No newline at end of file}" markers are silently skipped.
+ * 解析器刻意只接受 GitHub 逐文件 patch 输出的 hunk 级子集：一串 {@code @@ ... @@} 头，
+ * 后跟以 {@code ' '}、{@code '+'}、{@code '-'} 开头的行。文件级头
+ * （{@code diff --git}、{@code --- a/...}、{@code +++ b/...}）不会出现在 patch 字段里，
+ * 因此不在此处理。"{@code \ No newline at end of file}" 标记被静默跳过。
  */
 @Component
 public class DiffParser {
@@ -25,14 +22,14 @@ public class DiffParser {
     private static final Pattern HUNK_HEADER = Pattern.compile(
             "^@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@.*$");
 
+    /** 逐行扫描 patch：以 @@ 头开启一个 hunk，维护新旧两个行号游标。 */
     public List<DiffHunk> parse(String patch) {
         if (patch == null || patch.isEmpty()) {
             return Collections.emptyList();
         }
 
         List<DiffHunk> hunks = new ArrayList<>();
-        // Split keeping empty trailing entries so a hunk that ends with a blank
-        // context/added line is preserved verbatim.
+        // split 时保留结尾空串，确保以空白上下文/新增行结尾的 hunk 不被吞掉
         String[] lines = patch.split("\n", -1);
 
         int i = 0;
@@ -42,6 +39,7 @@ public class DiffParser {
                 i++;
                 continue;
             }
+            // 省略 ,count 时按惯例视为 1 行
             int oldStart = Integer.parseInt(m.group(1));
             int oldCount = m.group(2) == null ? 1 : Integer.parseInt(m.group(2));
             int newStart = Integer.parseInt(m.group(3));
@@ -55,12 +53,12 @@ public class DiffParser {
             while (i < lines.length && !lines[i].startsWith("@@")) {
                 String raw = lines[i];
                 if (raw.startsWith("\\")) {
-                    // "\ No newline at end of file" marker — skip without advancing line counters.
+                    // "\ No newline at end of file" 标记——跳过且不动行号游标
                     i++;
                     continue;
                 }
                 if (raw.isEmpty()) {
-                    // Some tools emit an empty line as a context line. Treat it as such.
+                    // 部分工具会输出空行表示上下文行，按上下文处理
                     body.add(new DiffLine(DiffLineType.CONTEXT, oldLine, newLine, ""));
                     oldLine++;
                     newLine++;
@@ -69,6 +67,7 @@ public class DiffParser {
                 }
                 char prefix = raw.charAt(0);
                 String content = raw.substring(1);
+                // 按前缀推进对应的行号游标：+ 只动新行号，- 只动旧行号，空格双双推进
                 switch (prefix) {
                     case '+' -> {
                         body.add(new DiffLine(DiffLineType.ADDED, 0, newLine, content));
@@ -84,7 +83,7 @@ public class DiffParser {
                         newLine++;
                     }
                     default -> {
-                        // Unknown prefix — bail out of this hunk to avoid mis-attributing line numbers.
+                        // 未知前缀——放弃本 hunk 剩余内容，避免行号错位传染后续解析
                         i = lines.length;
                     }
                 }

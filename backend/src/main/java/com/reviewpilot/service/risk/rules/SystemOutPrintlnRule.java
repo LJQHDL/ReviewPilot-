@@ -14,11 +14,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Flags {@code System.out.println} / {@code System.err.println} on added Java
- * lines outside test code. Production code should go through a logger; raw
- * stdout writes are usually a forgotten {@code printf}-debug.
+ * 标记测试代码之外的 Java 新增行中的 {@code System.out.println} / {@code System.err.println}。
+ * 生产代码应走日志框架；裸的 stdout 输出多半是忘删的 printf-debug。
  *
- * <p>LOW severity — it's a code-quality nudge, not a correctness bug.
+ * <p>LOW 严重度——这是代码质量提醒，不是正确性缺陷。
  */
 @Component
 public class SystemOutPrintlnRule implements RiskRule {
@@ -30,10 +29,11 @@ public class SystemOutPrintlnRule implements RiskRule {
 
     @Override
     public boolean appliesTo(FileType type) {
-        // Tests legitimately use System.out for debug output — skip them.
+        // 测试代码用 System.out 做调试输出是合理的——跳过
         return type != FileType.TEST;
     }
 
+    /** 子串匹配四种 System.out/err 打印调用。 */
     @Override
     public List<RiskItem> scan(FileChange change) {
         List<RiskItem> out = new ArrayList<>();

@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 
-/** Available tool definitions, dispatch, and tool-facing error normalization. */
+/** 面向 LLM 的工具注册表：提供工具定义、按名分发调用，并把一切失败归一化为文本结果。 */
 @Component
 public class ToolRegistry {
 
@@ -23,7 +23,7 @@ public class ToolRegistry {
         this.fileContentFetcher = fileContentFetcher;
     }
 
-    /** Available tool definitions sent to the LLM. */
+    /** 随每次 chat() 发给 LLM 的工具定义列表（fetch_file_content + search_repo）。 */
     public List<Tool> getDefinitions() {
         return List.of(
                 new Tool("fetch_file_content",
@@ -47,8 +47,8 @@ public class ToolRegistry {
     }
 
     /**
-     * Execute a tool call requested by the LLM. Returns formatted text for
-     * the LLM to consume — never throws.
+     * 执行 LLM 请求的工具调用，返回供 LLM 消费的格式化文本——绝不抛异常，
+     * 失败也以文本形式回传给模型让它自行调整。
      */
     public String execute(ToolCall call, PrUrl pr) {
         try {
@@ -63,12 +63,12 @@ public class ToolRegistry {
         }
     }
 
+    /** 抓取仓库内单个文件的完整内容。 */
     private String fetchFile(PrUrl pr, Map<String, Object> args) {
         String path = (String) args.get("path");
         if (path == null || path.isBlank()) return "Error: path is required";
-        // The path is model-authored, and the model is steered by PR content an
-        // attacker authors. The transport encodes segments, but refusing anything
-        // that is not a plain repo-relative path keeps the intent explicit.
+        // 该路径由模型生成，而模型可能被攻击者编写的 PR 内容诱导。传输层虽会做
+        // 分段编码，但仍显式拒绝一切非"仓库相对纯路径"的输入，让意图保持明确。
         if (path.startsWith("/") || path.contains("..") || path.indexOf('?') >= 0) {
             return "Error: path must be a repository-relative path without '..' or '?'";
         }

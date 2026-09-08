@@ -8,17 +8,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Primary entrypoint of ReviewPilot. Frontend (PR#7) hits this endpoint.
+ * 核心评审入口 POST /api/review，接收 PR URL 并委托 ReviewPipeline 执行完整评审。
  *
  * <pre>
  *   POST /api/review
  *   { "prUrl": "https://github.com/owner/repo/pull/12" }
  *   ->
  *   200 { ReviewResult }
- *   400 { error: "<reason>" }     (bad URL)
- *   404 { error: "..." }          (private or non-existent PR)
- *   401 { error: "..." }          (GitHub auth / rate-limit, or DeepSeek key not set)
- *   502 { error: "..." }          (DeepSeek API failure)
+ *   400 { error: "<reason>" }     (URL 非法)
+ *   404 { error: "..." }          (PR 不存在或私有)
+ *   401 { error: "..." }          (GitHub 鉴权/限流，或未设置 DeepSeek Key)
+ *   502 { error: "..." }          (DeepSeek API 调用失败)
  * </pre>
  */
 @RestController
@@ -30,11 +30,12 @@ public class ReviewController {
         this.pipeline = pipeline;
     }
 
-    /** HTTP body; URL semantics are validated by the application use case. */
+    /** 请求体：仅承载 URL 字符串，URL 语义校验由应用层用例负责。 */
     public record ReviewRequest(String prUrl) {}
 
     @PostMapping("/review")
     public ReviewResult review(@RequestBody ReviewRequest request) {
+        // 先做空值防御，再交给流水线执行完整评审
         if (request == null || request.prUrl() == null || request.prUrl().isBlank()) {
             throw new IllegalArgumentException("prUrl is required");
         }

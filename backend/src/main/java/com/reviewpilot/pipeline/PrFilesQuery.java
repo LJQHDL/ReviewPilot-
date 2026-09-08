@@ -6,7 +6,7 @@ import com.reviewpilot.service.github.GithubPrFetcher;
 import com.reviewpilot.service.github.RepoAllowlist;
 import org.springframework.stereotype.Service;
 
-/** Application query for the diff-only use case. */
+/** "只看 diff" 用例的应用层查询：解析 URL → 白名单校验 → 拉取并解析 PR 变更文件（不调用 LLM）。 */
 @Service
 public class PrFilesQuery {
     private final GithubPrFetcher fetcher;
@@ -17,6 +17,7 @@ public class PrFilesQuery {
         this.allowlist = allowlist;
     }
 
+    /** 编排 diff-only 流程：URL 校验在前，仓库白名单其次，最后抓取文件列表。 */
     public FetchedFiles files(String rawUrl) {
         PrUrl pr = PrUrl.parse(rawUrl);
         allowlist.requireAllowed(pr);

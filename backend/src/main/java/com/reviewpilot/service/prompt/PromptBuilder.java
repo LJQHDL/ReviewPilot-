@@ -15,30 +15,24 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Renders the user prompt that ReviewPipeline sends to the model. Files are
- * grouped by {@link FileType} so the model gets {@link PromptTemplate role-specific
- * guidance} once per group, then each file is rendered with its
- * rule-detected risks and any extracted {@link ContextSlice context windows}
- * stitched in above the raw patch.
+ * 渲染 ReviewPipeline 发给模型的用户 Prompt：文件按 {@link FileType} 分组，每组前置一次
+ * {@link PromptTemplate 角色专属指引}，每个文件渲染时把规则检出的风险和
+ * {@link ContextSlice 上下文窗口}缝在原始 patch 之上。
  *
- * <p>Why grouped: a controller and a SQL migration deserve different review
- * concerns, but a single AI call for the whole PR is cheaper and produces a
- * more coherent summary than splitting per file. Grouping is the compromise.
+ * <p>分组的原因：Controller 和 SQL 迁移理应受到不同的评审关注，但整个 PR 只发一次
+ * AI 调用比逐文件拆分更省钱、总结也更连贯——分组是折中方案。
  *
- * <p>Total prompt size stays bounded by the configured total cap; once the
- * budget is hit the remaining files are dropped with an explicit truncation
- * marker. Per-file patches are independently capped so a single huge file
- * can't starve the others. Both caps are configurable via
- * {@code reviewpilot.prompt.budget.*} so the demo / evaluator can adjust them
- * without recompiling.
+ * <p>Prompt 总大小受配置的总量上限约束：预算耗尽后剩余文件被丢弃并留下显式截断标记；
+ * 单文件 patch 也独立封顶，防止一个巨型文件饿死其他文件。两个上限均可通过
+ * {@code reviewpilot.prompt.budget.*} 配置，演示/评估时无需重新编译。
  */
 @Component
 public class PromptBuilder {
 
-    /** Default per-file patch character cap. */
+    /** 单文件 patch 默认字符上限。 */
     static final int DEFAULT_MAX_PATCH_CHARS_PER_FILE = 6_000;
 
-    /** Default total prompt character cap (≈ 16k tokens at ~4 chars/token). */
+    /** Prompt 总字符默认上限（按约 4 字符/token 折算 ≈ 16k tokens）。 */
     static final int DEFAULT_MAX_TOTAL_CHARS = 60_000;
 
     private final int maxPatchCharsPerFile;
@@ -57,6 +51,7 @@ public class PromptBuilder {
         this.maxTotalChars = maxTotalChars;
     }
 
+    /** 评审者 system prompt：8 条 Reviewer Rule + 输出 JSON Schema + 严重度/证据/置信度准则（此文本是发给模型的提示词内容，非注释，保持英文）。 */
     public String systemPrompt() {
         return """
                 You are ReviewPilot, an experienced senior engineer reviewing GitHub Pull Requests.
@@ -305,7 +300,7 @@ public class PromptBuilder {
                 """;
     }
 
-    /** System prompt for the V3 ReAct agent — appends tool-use instructions. */
+    /** V3 ReAct Agent 的 system prompt：在基础评审规则后追加工具使用与收敛指令。 */
     public String reactSystemPrompt() {
         return systemPrompt() + """
 
@@ -322,8 +317,7 @@ public class PromptBuilder {
     }
 
     /**
-     * User prompt for the V3 ReAct agent. Includes tool descriptions and the
-     * convergence directive.
+     * V3 ReAct Agent 的用户 Prompt：附上工具清单与收敛指令，文件组内容复用 {@link #build}。
      */
     public String reactUserPrompt(List<FileChange> files,
                                    Map<String, FileType> classifications,
@@ -347,20 +341,17 @@ public class PromptBuilder {
           .append("change. Identify the core mechanism (CAS, lock, retry, state machine, ")
           .append("etc.) and verify its correctness BEFORE reviewing incidental code.\n\n");
 
-        // Reuse existing build() content for the file groups
+        // 文件组主体复用 build() 的渲染逻辑
         String base = build(files, classifications, risks, contexts,
                 Map.of(), prTitle);
         sb.append(base);
         return sb.toString();
     }
 
-    // Need Tool import — added at class level via existing imports
-    // (Tool is in com.reviewpilot.service.ai, already imported)
-
     /**
-     * Build the user prompt.
+     * 构建用户 Prompt：按 FileType 分组渲染，逐文件附带风险/上下文/全文，受总字符预算约束。
      *
-     * @param prTitle           PR title from GitHub API (may be null)
+     * @param prTitle GitHub API 返回的 PR 标题（可能为 null）
      */
     public String build(List<FileChange> files,
                         Map<String, FileType> classifications,
@@ -370,10 +361,11 @@ public class PromptBuilder {
                         String prTitle) {
         if (files == null || files.isEmpty()) return "";
 
+        // 风险与上下文切片按文件名建索引，渲染时 O(1) 取用
         Map<String, List<RiskItem>> risksByFile = groupBy(risks, RiskItem::file);
         Map<String, List<ContextSlice>> contextsByFile = groupBy(contexts, ContextSlice::file);
 
-        // Group files by type, preserving the original file order within each group.
+        // 按类型分组，组内保持原始文件顺序（EnumMap 保证组的遍历顺序稳定）
         Map<FileType, List<FileChange>> byType = new EnumMap<>(FileType.class);
         for (FileChange f : files) {
             FileType t = classifications == null ? FileType.OTHER
@@ -393,6 +385,7 @@ public class PromptBuilder {
           .append("Below are the changed files of a Pull Request, grouped by file type.\n")
           .append("For each group, follow the role-specific guidance, then review each file.\n\n");
 
+        // 逐组逐文件追加，任何一步超总预算即停止并标记截断
         boolean truncated = false;
         for (Map.Entry<FileType, List<FileChange>> e : byType.entrySet()) {
             String groupHeader = "## Group: " + e.getKey() + "\n" + PromptTemplate.forType(e.getKey()).guidance() + "\n";
@@ -420,6 +413,7 @@ public class PromptBuilder {
         return sb.toString();
     }
 
+    /** 渲染单个文件区块：标题 → 可选全文 → 预检风险 → 上下文窗口 → patch（独立截断）。 */
     private String renderFile(FileChange f, List<RiskItem> risks,
                                List<ContextSlice> contexts, String fullContent) {
         StringBuilder s = new StringBuilder(4096);
@@ -461,6 +455,7 @@ public class PromptBuilder {
         return s.toString();
     }
 
+    /** 按字符串键分组（键为空的条目丢弃），用于建立 文件→风险 / 文件→上下文 索引。 */
     private static <T> Map<String, List<T>> groupBy(List<T> items, java.util.function.Function<T, String> key) {
         Map<String, List<T>> map = new HashMap<>();
         if (items == null) return map;
@@ -472,6 +467,7 @@ public class PromptBuilder {
         return map;
     }
 
+    /** 截断到 max 字符并标注截掉量；未超限则保证以换行结尾。 */
     private static String truncate(String s, int max) {
         if (s.length() <= max) {
             return s.endsWith("\n") ? s : s + "\n";

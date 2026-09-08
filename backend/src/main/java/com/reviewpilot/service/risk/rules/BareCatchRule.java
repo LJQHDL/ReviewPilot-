@@ -14,13 +14,11 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Flags {@code catch (Exception ...)} or {@code catch (Throwable ...)} blocks
- * that swallow the exception silently — i.e. the catch line has no logger call
- * or {@code throw} in the same hunk after it. A common production foot-gun:
- * the error vanishes and the failure mode shows up much later as missing data.
+ * 标记 {@code catch (Exception ...)} / {@code catch (Throwable ...)} 且静默吞掉异常的代码——
+ * 即 catch 行之后的同一 hunk 内没有日志调用或 {@code throw}。常见的生产隐患：
+ * 错误凭空消失，故障很久之后才以数据缺失的形式暴露。
  *
- * <p>MEDIUM severity — bare catches sometimes are intentional (cleanup paths),
- * so we flag without escalating.
+ * <p>MEDIUM 严重度——裸 catch 有时是刻意为之（清理路径），因此只标记不升级。
  */
 @Component
 public class BareCatchRule implements RiskRule {
@@ -33,6 +31,7 @@ public class BareCatchRule implements RiskRule {
         return "bare-catch";
     }
 
+    /** 只扫 Java 文件的 ADDED 行；命中裸 catch 且后文无处理痕迹则报一条风险。 */
     @Override
     public List<RiskItem> scan(FileChange change) {
         List<RiskItem> out = new ArrayList<>();
@@ -59,9 +58,8 @@ public class BareCatchRule implements RiskRule {
     }
 
     /**
-     * Look at the next ~5 added/context lines after a catch header for any
-     * sign the exception is being handled (logger call, throw, return after
-     * recording). If none, treat it as silent swallow.
+     * 查看 catch 头之后约 5 行新增/上下文行，寻找异常被处理的任何迹象
+     * （日志调用、throw、记录后 return）。一处都没有则判定为静默吞异常。
      */
     private static boolean followedByHandling(List<DiffLine> lines, int startIdx) {
         int looked = 0;

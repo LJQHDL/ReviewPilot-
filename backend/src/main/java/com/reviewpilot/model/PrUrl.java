@@ -5,17 +5,16 @@ import java.net.URISyntaxException;
 import java.util.Objects;
 
 /**
- * Represents a parsed GitHub Pull Request URL.
- * Accepts URLs like {@code https://github.com/owner/repo/pull/12} (with optional
- * trailing slash, anchor, query, or surrounding whitespace).
+ * 解析后的 GitHub PR 地址值对象，拆出 owner/repo/PR 编号并做格式校验。
+ * 接受形如 {@code https://github.com/owner/repo/pull/12} 的 URL（允许末尾斜杠、锚点、查询串和首尾空白）。
  */
 public record PrUrl(String owner, String repo, int number) {
 
-    /** GitHub's own owner/repo charset. Both values are interpolated into outbound
-     *  API paths, so nothing looser than this may reach them. */
+    /** GitHub 官方 owner/repo 字符集；两者会被拼进对外 API 路径，因此不能放宽校验。 */
     private static final java.util.regex.Pattern NAME =
             java.util.regex.Pattern.compile("[A-Za-z0-9._-]{1,100}");
 
+    /** 紧凑构造器：校验 owner/repo 字符合法且 PR 编号为正整数。 */
     public PrUrl {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(repo, "repo");
@@ -30,6 +29,7 @@ public record PrUrl(String owner, String repo, int number) {
         }
     }
 
+    /** 从原始字符串解析 PR URL，任何不合规输入统一抛 IllegalArgumentException（→ 400）。 */
     public static PrUrl parse(String raw) {
         if (raw == null || raw.isBlank()) {
             throw new IllegalArgumentException("PR URL must not be empty");
@@ -50,9 +50,9 @@ public record PrUrl(String owner, String repo, int number) {
         if (path == null) {
             throw new IllegalArgumentException("Missing path in PR URL: " + raw);
         }
-        // Expect /<owner>/<repo>/pull/<number>
+        // 期望路径格式 /<owner>/<repo>/pull/<number>
         String[] parts = path.split("/");
-        // parts[0] is empty because path starts with '/'
+        // parts[0] 为空，因为路径以 '/' 开头
         if (parts.length < 5 || !"pull".equals(parts[3])) {
             throw new IllegalArgumentException(
                     "Expected path /<owner>/<repo>/pull/<number>, got: " + path);

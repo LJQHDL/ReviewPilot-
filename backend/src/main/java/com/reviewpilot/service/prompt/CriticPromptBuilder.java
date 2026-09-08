@@ -5,9 +5,10 @@ import com.reviewpilot.model.RiskItem;
 import org.springframework.stereotype.Component;
 import java.util.List;
 
-/** Prompt rendering for the quality inspector; no model calls. */
+/** 质量检查员（Critic）与修订环节的 Prompt 渲染器；本身不调用模型。 */
 @Component
 public class CriticPromptBuilder {
+    /** Critic 的 system prompt：定义 HALLUCINATION / MISSING / SEVERITY / DUPLICATE / CONSISTENCY 五类检查项与 JSON 输出契约。 */
     public String systemPrompt() {
         return """
                 You are a strict code review quality inspector. Your job is to check an
@@ -66,9 +67,9 @@ public class CriticPromptBuilder {
     }
 
     /**
-     * @param codeUnderReview the material the reviewer was shown. Without it a
-     *        HALLUCINATION verdict has no ground truth: the only evidence left is
-     *        "the nine rule heuristics did not report this", which proves nothing.
+     * 拼装 Critic 的 user prompt：证据代码 + 规则风险 + AI 评审三块对照材料。
+     * @param codeUnderReview 评审者当初看到的材料。缺了它，HALLUCINATION 判定就没有
+     *        事实基准：剩下唯一的证据只有"九条规则启发式没报这个"，而这什么都证明不了。
      */
     public String build(List<RiskItem> ruleRisks, ReviewResult review, String codeUnderReview) {
         int evidenceLen = codeUnderReview == null ? 0 : codeUnderReview.length();
@@ -117,6 +118,7 @@ public class CriticPromptBuilder {
         return sb.toString();
     }
 
+    /** 生成修订版 system prompt：原 prompt + Critic 发现的问题清单 + "输出修正后的合法 JSON"指令。 */
     public String revisionSystemPrompt(String systemPrompt, List<String> issues) {
         StringBuilder sb = new StringBuilder(systemPrompt.length() + 512);
         sb.append(systemPrompt)

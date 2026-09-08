@@ -3,9 +3,8 @@ package com.reviewpilot.service.diff;
 import java.util.List;
 
 /**
- * A single file's worth of changes in a PR. Mirrors the shape of one entry in
- * GitHub's {@code GET /repos/.../pulls/{n}/files} response, augmented with the
- * parsed hunks of {@link #patch()} when {@link #binary()} is false.
+ * PR 中单个文件的变更记录，与 GitHub {@code GET /repos/.../pulls/{n}/files} 响应条目形状一致，
+ * 并在非二进制文件时附带 {@link #patch()} 解析出的 hunks。
  */
 public record FileChange(
         String filename,
@@ -13,7 +12,7 @@ public record FileChange(
         int additions,
         int deletions,
         boolean binary,
-        String patch,          // raw unified diff (null for binary or no-change)
-        List<DiffHunk> hunks   // empty if binary or patch is null
+        String patch,          // 原始 unified diff（二进制或无改动时为 null）
+        List<DiffHunk> hunks   // 二进制或 patch 为 null 时为空
 ) {
 }

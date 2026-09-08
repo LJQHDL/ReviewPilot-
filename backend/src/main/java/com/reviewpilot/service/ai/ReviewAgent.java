@@ -18,23 +18,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * ReAct Agent: replaces the single-shot LLM call with a multi-turn
- * Reasoning + Acting loop. The LLM autonomously decides what tools to
- * call and when to stop and produce the final review.
+ * ReAct Agent：用"推理 + 行动"多轮循环取代单发 LLM 调用，由 LLM 自主决定调用哪些工具、何时收敛输出最终评审。
  *
- * <p>Per-invocation state lives in {@link Loop} and comes back as
- * {@link AgentReview}; nothing is accumulated on the bean, so one instance can
- * serve concurrent PRs without their counters crossing over.
+ * <p>每次调用的状态都保存在 {@link Loop} 中并随 {@link AgentReview} 返回；
+ * Bean 上不累积任何状态，因此单实例可并发服务多个 PR 而计数器互不串扰。
  */
 @Service
 public class ReviewAgent {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewAgent.class);
 
-    static final int TOOL_CALL_LIMIT = 4;
-    private static final double COMPRESS_AT = 0.8;
-    private static final int TOOL_RESULT_COMPRESS_FROM = 2000;
-    private static final int TOOL_RESULT_KEEP_CHARS = 1000;
+    static final int TOOL_CALL_LIMIT = 4;                    // 单次评审工具调用上限，达到后引导收敛
+    private static final double COMPRESS_AT = 0.8;           // 字符用量超预算 80% 时压缩旧工具结果
+    private static final int TOOL_RESULT_COMPRESS_FROM = 2000; // 超过此长度的工具结果才压缩
+    private static final int TOOL_RESULT_KEEP_CHARS = 1000;  // 压缩后保留的头部字符数
 
     private final ModelProvider modelProvider;
     private final ToolRegistry toolRegistry;
@@ -58,6 +55,7 @@ public class ReviewAgent {
         this.maxTotalChars = maxTotalChars;
     }
 
+    /** 评审主循环：构造初始消息后反复"chat → 执行工具 → 回填结果"，直到收敛、超预算或达最大轮次。 */
     public AgentReview review(List<FileChange> files,
                               Map<String, FileType> classifications,
                               List<RiskItem> ruleRisks,
@@ -65,19 +63,21 @@ public class ReviewAgent {
                               String prTitle,
                               PrUrl pr,
                               Deadline deadline) {
+        // 初始消息：system 定义评审角色与工具用法，user 携带 diff/规则结果/工具清单
         List<Message> messages = new ArrayList<>();
         messages.add(Message.system(promptBuilder.reactSystemPrompt()));
         messages.add(Message.user(promptBuilder.reactUserPrompt(
                 files, classifications, ruleRisks, contexts, prTitle,
                 toolRegistry.getDefinitions())));
 
+        // 每次调用的局部累加器，绝不放到 Bean 字段上
         Loop loop = new Loop();
 
         while (loop.round < maxRounds) {
             loop.round++;
 
-            // Out of wall-clock budget: answer with what is already gathered
-            // instead of starting another round the client will never see.
+            // 墙钟预算耗尽：用已收集的信息立即作答，
+            // 不再启动客户端注定等不到的新一轮调用。
             if (deadline.expired()) {
                 log.warn("Review budget exhausted after {} rounds / {} tool calls",
                         loop.round - 1, loop.toolCalls);
@@ -85,17 +85,17 @@ public class ReviewAgent {
                 return finish(forceComplete(messages, loop), loop);
             }
 
-            // Token budget: compress if over 80%
+            // 字符预算超 80%：先压缩早期工具结果
             if (estimateChars(messages) > maxTotalChars * COMPRESS_AT) {
                 messages = compressToolResults(messages);
             }
-            // Still over limit after compression → force finish
+            // 压缩后仍超限：强制收尾
             if (estimateChars(messages) > maxTotalChars) {
                 messages.add(Message.user("上下文已满，请立即输出审查结果 JSON，不要调用工具。"));
                 return finish(forceComplete(messages, loop), loop);
             }
 
-            // Convergence: stop handing out tools once the budget is spent
+            // 收敛策略：工具调用预算用完后不再下发工具定义，逼模型直接给结论
             boolean giveTools = loop.toolCalls < TOOL_CALL_LIMIT;
             List<Tool> tools = giveTools ? toolRegistry.getDefinitions() : List.of();
 
@@ -104,11 +104,11 @@ public class ReviewAgent {
                     loop.round, resp.hasToolCalls(), resp.content().length());
 
             if (resp.hasToolCalls()) {
-                // Add the assistant message with tool_calls first (required by API spec)
+                // API 规范要求先回填带 tool_calls 的 assistant 消息，再逐条追加 tool 结果
                 messages.add(Message.assistant(resp.content(), resp.toolCalls()));
                 for (ToolCall call : resp.toolCalls()) {
-                    // Each tool call is further GitHub I/O, so the budget is
-                    // checked per call and not only between rounds.
+                    // 每次工具调用都是额外的 GitHub I/O，因此预算按调用逐个检查、
+                    // 而不是只在轮次之间检查。
                     String result = deadline.expired()
                             ? "上下文时间预算已用尽，无法再执行工具。请立即输出最终审查结果 JSON。"
                             : toolRegistry.execute(call, pr);
@@ -123,21 +123,22 @@ public class ReviewAgent {
                 continue;
             }
 
-            // No tool calls → LLM is done, parse result
+            // 无工具调用 → 模型已给出结论，解析为 ReviewResult
             return finish(parseReply(resp.content(), messages, loop), loop);
         }
 
-        // Exceeded maxRounds — force completion
+        // 达到最大轮数仍未收敛——强制收尾（不带工具再问一次）
         messages.add(Message.user("已达到最大轮次 " + maxRounds + "。请立即输出审查结果 JSON。"));
         return finish(forceComplete(messages, loop), loop);
     }
 
-    /** Force the LLM to output a final result (no tools). */
+    /** 以"禁用工具"的方式再问一次，强迫模型输出最终结果。 */
     private ReviewResult forceComplete(List<Message> messages, Loop loop) {
         AgentResponse resp = chat(messages, List.of(), loop);
         return parseReply(resp.content(), messages, loop);
     }
 
+    /** 解析回复；失败时把错误反馈追加进对话并让模型重写一次（由 ReplyReader 驱动）。 */
     private ReviewResult parseReply(String raw, List<Message> messages, Loop loop) {
         return replyReader.read(raw, feedback -> {
             messages.add(Message.assistant(raw, List.of()));
@@ -146,6 +147,7 @@ public class ReviewAgent {
         });
     }
 
+    /** 统一出口：每次 chat 的真实 token 用量累加进本次调用的 Loop。 */
     private AgentResponse chat(List<Message> messages, List<Tool> tools, Loop loop) {
         AgentResponse resp = modelProvider.chat(messages, tools);
         loop.promptTokens += resp.promptTokens();
@@ -153,12 +155,13 @@ public class ReviewAgent {
         return resp;
     }
 
+    /** 把循环内积累的结果与统计打包成一次性返回值。 */
     private static AgentReview finish(ReviewResult result, Loop loop) {
         return new AgentReview(result, loop.round, loop.toolCalls,
                 loop.promptTokens, loop.completionTokens);
     }
 
-    /** Per-invocation accumulator — never shared between requests. */
+    /** 单次调用的状态累加器——绝不跨请求共享。 */
     private static final class Loop {
         int round;
         int toolCalls;
@@ -166,7 +169,7 @@ public class ReviewAgent {
         int completionTokens;
     }
 
-    /** Rough char-count estimate for token budget management. */
+    /** 用字符数粗略估算上下文占用，作为 token 预算的代理指标。 */
     private static int estimateChars(List<Message> messages) {
         int n = 0;
         for (Message m : messages) {
@@ -177,8 +180,8 @@ public class ReviewAgent {
     }
 
     /**
-     * Compress early tool results to save context. For tool messages over
-     * {@value #TOOL_RESULT_COMPRESS_FROM} chars, keep the head and mark the cut.
+     * 压缩早期工具结果以节省上下文：超过 {@value #TOOL_RESULT_COMPRESS_FROM}
+     * 字符的 tool 消息只保留头部 {@value #TOOL_RESULT_KEEP_CHARS} 字符并标注截断量。
      */
     private static List<Message> compressToolResults(List<Message> messages) {
         List<Message> out = new ArrayList<>();

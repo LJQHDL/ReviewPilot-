@@ -1,30 +1,18 @@
 package com.reviewpilot.service.classifier;
 
 /**
- * Coarse functional category of a changed file, used downstream by
- * {@code RiskDetector} (PR#5) to pick which rules to apply and by
- * {@code PromptBuilder} (PR#6) to pick which prompt template to render.
+ * 变更文件的粗粒度功能分类，下游用 {@code RiskDetector} 挑选适用规则、用 {@code PromptBuilder} 挑选 Prompt 模板。
  * <p>
- * The set is intentionally small — six buckets is enough to drive meaningful
- * differentiation in prompts without forcing the classifier to be precise
- * about edge cases. Anything we can't confidently place falls into
- * {@link #OTHER} and gets the generic prompt.
+ * 桶数刻意保持精简——六个分类足以让 Prompt 产生有意义的差异，同时不逼迫分类器
+ * 在边界情形上精确；无法自信归类的文件落入 {@link #OTHER}，使用通用 Prompt。
  *
  * <ul>
- *   <li>{@link #CONTROLLER} — HTTP-facing entry points (Spring MVC controllers,
- *       REST endpoints). Reviewers should think about input validation, status
- *       codes, auth.</li>
- *   <li>{@link #SERVICE} — business logic / Spring service beans. Reviewers
- *       should think about transactions, concurrency, error handling.</li>
- *   <li>{@link #CONFIG} — application configuration (yml/properties, Spring
- *       {@code @Configuration} classes). Reviewers should think about secret
- *       leakage, environment-specific defaults.</li>
- *   <li>{@link #SQL} — schema or query files. Reviewers should think about
- *       index impact, migration safety, injection.</li>
- *   <li>{@link #TEST} — test sources. Reviewers should think about coverage and
- *       brittleness, not production correctness.</li>
- *   <li>{@link #OTHER} — anything else (frontend, docs, build files,
- *       unclassified). Receives a generic review prompt.</li>
+ *   <li>{@link #CONTROLLER} — HTTP 入口（Spring MVC 控制器、REST 端点），评审关注入参校验、状态码、鉴权。</li>
+ *   <li>{@link #SERVICE} — 业务逻辑 / Spring service bean，评审关注事务、并发、错误处理。</li>
+ *   <li>{@link #CONFIG} — 应用配置（yml/properties、Spring {@code @Configuration} 类），评审关注密钥泄漏、环境相关默认值。</li>
+ *   <li>{@link #SQL} — 建表或查询文件，评审关注索引影响、迁移安全、注入。</li>
+ *   <li>{@link #TEST} — 测试源码，评审关注覆盖率与脆弱性，而非生产正确性。</li>
+ *   <li>{@link #OTHER} — 其余（前端、文档、构建文件、未分类），使用通用评审 Prompt。</li>
  * </ul>
  */
 public enum FileType {

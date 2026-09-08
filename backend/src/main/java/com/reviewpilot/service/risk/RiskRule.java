@@ -7,50 +7,43 @@ import com.reviewpilot.service.diff.FileChange;
 import java.util.List;
 
 /**
- * Static, AI-free check that scans a single {@link FileChange} for a specific
- * class of issue (unreleased lock, bare catch, SQL string concatenation, etc.)
- * and emits {@link RiskItem}s pinned to the relevant lines.
+ * 不依赖 AI 的静态检查：扫描单个 {@link FileChange} 中某一类问题（锁未释放、裸 catch、
+ * SQL 字符串拼接等），并输出钉在相关行上的 {@link RiskItem}。
  *
- * <p>Each rule is a Spring {@code @Component} so {@code RiskDetector} can pick
- * them up via constructor-injected {@code List<RiskRule>}. Adding a new rule
- * means dropping a new {@code @Component} class into
- * {@code service/risk/rules/} — no central registry to update.
+ * <p>每条规则都是一个 Spring {@code @Component}，{@code RiskDetector} 通过构造器注入的
+ * {@code List<RiskRule>} 自动收集。新增规则 = 往 {@code service/risk/rules/} 放一个新
+ * {@code @Component} 类——无需维护中心注册表。
  *
- * <h3>Conventions all rules follow</h3>
+ * <h3>所有规则共同遵守的约定</h3>
  * <ul>
- *   <li>{@link #scan(FileChange)} only inspects {@code ADDED} diff lines.
- *       Touching pre-existing code would flag issues the PR author didn't
- *       introduce, which is noise.</li>
- *   <li>{@link RiskItem#line()} uses the new-file line number from the diff.
- *       0 means "file-level, no specific line".</li>
- *   <li>{@link #appliesTo(FileType)} is the cheap up-front filter so we don't,
- *       say, run the SQL-injection rule against a Markdown file.</li>
- *   <li>Rules must not throw on malformed input. RiskDetector wraps each call
- *       in try/catch + log, but a defensive rule keeps logs clean.</li>
+ *   <li>{@link #scan(FileChange)} 只检查 {@code ADDED} diff 行。
+ *       碰存量代码会标记 PR 作者并未引入的问题，那是噪音。</li>
+ *   <li>{@link RiskItem#line()} 使用 diff 中的新文件行号；0 表示"文件级、无具体行"。</li>
+ *   <li>{@link #appliesTo(FileType)} 是廉价的前置过滤器，
+ *       避免把 SQL 注入规则跑到 Markdown 文件上。</li>
+ *   <li>规则遇到畸形输入不得抛异常。RiskDetector 虽有 try/catch + 日志兜底，
+ *       防御性规则能保持日志干净。</li>
  * </ul>
  *
- * <p>The rule layer is deliberately heuristic and patch-only — it doesn't parse
- * Java source. The point is to catch obvious foot-guns cheaply and feed them
- * into the prompt later (PR#6) so the AI's review starts already informed.
+ * <p>规则层刻意是启发式、只看 patch 的——不解析 Java 源码。目的是廉价地抓住明显的
+ * 坑，随后（PR#6）喂进 Prompt，让 AI 的评审一开始就带着先验信息。
  */
 public interface RiskRule {
 
-    /** Stable identifier used in logs and (later) for de-duping AI suggestions. */
+    /** 稳定标识符，用于日志（及后续对 AI 建议的去重）。 */
     String id();
 
     /**
-     * Whether this rule can produce useful findings for the given file type.
-     * Default: applies to everything; override to narrow to e.g. only
-     * {@link FileType#CONTROLLER} / {@link FileType#SERVICE}.
+     * 该规则对给定文件类型是否可能产出有用发现。
+     * 默认适用于所有类型；可覆写收窄到如 {@link FileType#CONTROLLER} / {@link FileType#SERVICE}。
      */
     default boolean appliesTo(FileType type) {
         return true;
     }
 
     /**
-     * Scan the file's hunks for findings. Implementations should iterate
-     * {@code change.hunks()} and only act on {@code ADDED} lines. Return an
-     * empty list when nothing matches — never null.
+     * 扫描文件 hunks 产出发现。实现应遍历 {@code change.hunks()} 且只处理
+     * {@code ADDED} 行。无命中时返回空列表——绝不返回 null。
      */
     List<RiskItem> scan(FileChange change);
 }

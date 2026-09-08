@@ -29,7 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Application use case: prepare evidence, run review/refinement, assemble the API result. */
+/** 完整评审用例：准备证据（抓取/分类/规则检测/上下文）→ ReAct Agent 评审 → 反思修订 → 合并风险并组装 API 结果。 */
 @Service
 public class ReviewPipeline {
 
@@ -77,8 +77,10 @@ public class ReviewPipeline {
         this.maxPrefetchFiles = maxPrefetchFiles;
     }
 
+    /** 评审主流程：预处理各阶段确定性地串起来，LLM 阶段由 ReviewAgent 自主决策。 */
     public ReviewResult review(String prUrlRaw) {
         long started = System.currentTimeMillis();
+        // 全请求墙钟预算：超时后跳过预取与反思，不再启动新的模型调用
         Deadline deadline = Deadline.of(requestBudgetMillis);
         PrUrl pr = PrUrl.parse(prUrlRaw);
         allowlist.requireAllowed(pr);
@@ -88,6 +90,7 @@ public class ReviewPipeline {
         log.debug("PR {}/{}#{} → {} files{}", pr.owner(), pr.repo(), pr.number(),
                 files.size(), fetched.truncated() ? " (TRUNCATED at page cap)" : "");
 
+        // 空 PR 短路：不消耗任何 LLM 调用直接返回空结果
         if (files.isEmpty()) {
             return new ReviewResult(
                     prUrlRaw,
@@ -99,6 +102,7 @@ public class ReviewPipeline {
             );
         }
 
+        // 逐文件分类 + 规则风险扫描 + 加载 diff 上下文切片
         Map<String, FileType> classifications = new HashMap<>();
         for (FileChange f : files) {
             classifications.put(f.filename(), classifier.classify(f));
@@ -106,10 +110,8 @@ public class ReviewPipeline {
         List<RiskItem> ruleRisks = riskDetector.scan(files);
         List<ContextSlice> contexts = contextLoader.load(files, ruleRisks);
 
-        // Fetch full file content for files that have rule-detected risks so the
-        // AI gets wider context than just the diff hunk ±3 lines. Capped: each
-        // entry is another pair of GitHub calls, so a risk-dense PR used to scale
-        // that cost with its finding count without limit.
+        // 为规则命中风险的文件抓取完整文件内容，让 AI 看到比 diff 上下文（±3 行）更宽的视野。
+        // 必须设上限：每个文件要多打两次 GitHub API，风险密集的 PR 曾让该成本随发现数无限增长。
         List<String> riskyPaths = ruleRisks.stream()
                 .map(RiskItem::file)
                 .filter(f -> f != null && !f.isBlank())
@@ -123,7 +125,7 @@ public class ReviewPipeline {
         log.debug("Pipeline: {} files, {} rule risks, {} context slices, {} full-file fetches",
                 files.size(), ruleRisks.size(), contexts.size(), fullFileContents.size());
 
-        // ── ReAct Agent review ──
+        // ── ReAct Agent 评审（LLM + 工具循环） ──
         long llmStart = System.currentTimeMillis();
         String prTitle = fetcher.fetchPrTitle(pr);
         AgentReview agentReview = reviewAgent.review(files, classifications, ruleRisks,
@@ -135,8 +137,8 @@ public class ReviewPipeline {
                 fullFileContents, prTitle);
 
         int agentRounds = 1;
-        // Reflection is the optional quality pass: with the budget spent it is
-        // skipped outright rather than starting calls nobody will wait for.
+        // 反思是可选的质量环节：预算耗尽时直接跳过，
+        // 不再启动客户端已经不会等待的模型调用。
         ReflectionOrchestrator.RefinementResult refinement = deadline.expired()
                 ? new ReflectionOrchestrator.RefinementResult(null, List.of())
                 : orchestrator.refine(parsed, ruleRisks, systemPrompt, userPrompt);
@@ -145,6 +147,7 @@ public class ReviewPipeline {
             agentRounds = 2;
         }
 
+        // 规则风险与 AI 风险去重合并，形成最终风险列表
         List<RiskItem> mergedRisks = riskMerger.merge(ruleRisks, parsed.risks());
 
         long totalMs = System.currentTimeMillis() - started;

@@ -14,14 +14,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Flags {@code lock.lock()} / {@code .acquire()} calls on added lines whose
- * surrounding hunk has no {@code unlock()} / {@code release()} call. A
- * heuristic: we don't trace control flow, so this only catches the obvious
- * "lock without finally" smell where the matching unlock would have shown up
- * in the same hunk if it existed.
+ * 标记新增行上的 {@code lock.lock()} / {@code .acquire()} 调用，且其所在 hunk 中
+ * 没有对应的 {@code unlock()} / {@code release()}。这是启发式：不追踪控制流，
+ * 因此只抓最显眼的"加锁没有 finally"气味——若配对解锁存在，本应出现在同一 hunk 里。
  *
- * <p>HIGH severity — an unreleased lock will deadlock production under
- * contention, which is among the worst foot-guns to ship unnoticed.
+ * <p>HIGH 严重度——未释放的锁会在竞争下死锁生产环境，
+ * 是最不能被无声上线的隐患之一。
  */
 @Component
 public class UnreleasedLockRule implements RiskRule {
@@ -36,6 +34,7 @@ public class UnreleasedLockRule implements RiskRule {
         return type == FileType.CONTROLLER || type == FileType.SERVICE || type == FileType.OTHER;
     }
 
+    /** 先整 hunk 排除含 unlock/release 的，再逐行报告加锁调用。 */
     @Override
     public List<RiskItem> scan(FileChange change) {
         List<RiskItem> out = new ArrayList<>();
@@ -60,6 +59,7 @@ public class UnreleasedLockRule implements RiskRule {
         return out;
     }
 
+    /** 在 hunk 中找针（新增行与上下文行都算，被删的不算）。 */
     private static boolean hunkContains(DiffHunk hunk, String needle) {
         for (DiffLine l : hunk.lines()) {
             if (l.type() != DiffLineType.REMOVED && l.content().contains(needle)) {

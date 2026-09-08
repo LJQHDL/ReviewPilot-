@@ -12,7 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
-/** GitHub Contents/PR metadata adapter. Fetches and decodes source without prompt-budget policy. */
+/** GitHub Contents/PR 元数据适配器：负责抓取并解码源文件内容，不涉及 Prompt 预算策略。 */
 @Component
 public class FileContentFetcher {
 
@@ -27,6 +27,7 @@ public class FileContentFetcher {
         this.props = props;
     }
 
+    /** 读取 PR 元数据取 head 分支 ref（Contents API 需要按 ref 定位版本）；失败返回 null。 */
     public String fetchHeadRef(PrUrl pr) {
         try {
             PrMetadata meta = github.get()
@@ -44,8 +45,7 @@ public class FileContentFetcher {
     }
 
     /**
-     * Public entry point for ToolRegistry — fetch a single file's content.
-     * Returns null if the file is not found or not accessible.
+     * ToolRegistry 的公开入口——抓取单个文件内容；文件不存在或不可访问时返回 null。
      */
     public String fetchContent(PrUrl pr, String filePath) {
         String ref = fetchHeadRef(pr);
@@ -59,9 +59,8 @@ public class FileContentFetcher {
     }
 
     /**
-     * The path comes from the model, so it is added segment by segment: that both
-     * encodes separators (no traversal via {@code ..}) and stops a {@code ?} inside
-     * the path from replacing the {@code ref} this method intends to set.
+     * 路径来自模型，因此逐段（segment）拼接：这样既对分隔符做编码（杜绝 {@code ..} 穿越），
+     * 也阻止路径里夹带的 {@code ?} 顶掉本方法要设置的 {@code ref} 查询参数。
      */
     public String fetchAtRef(PrUrl pr, String filePath, String ref) {
         String[] segments = filePath.split("/");
@@ -80,6 +79,7 @@ public class FileContentFetcher {
                     .bodyToMono(FileContent.class)
                     .block(props.timeout());
             if (fc == null || fc.content() == null) return null;
+            // Contents API 返回带换行的 Base64，先去空白再解码为 UTF-8 文本
             byte[] decoded = Base64.getDecoder().decode(
                     fc.content().replaceAll("\\s", ""));
             return new String(decoded, StandardCharsets.UTF_8);

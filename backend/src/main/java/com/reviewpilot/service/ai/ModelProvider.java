@@ -3,29 +3,27 @@ package com.reviewpilot.service.ai;
 import java.util.List;
 
 /**
- * Abstraction over an LLM chat completion.
+ * LLM 聊天补全的抽象接口，隔离具体模型提供方（当前实现为 DeepSeek）。
  * <p>
- * {@link #complete(String, String)} is the original single-shot interface
- * used by tests and the V2 pipeline. {@link #chat(List, List)} is the V3
- * multi-turn interface that supports tool calling for the ReAct agent loop.
+ * {@link #complete(String, String)} 是测试与旧 V2 管线使用的单发式接口；
+ * {@link #chat(List, List)} 是 V3 多轮接口，支持工具调用，供 ReAct Agent 循环使用。
  */
 public interface ModelProvider {
 
-    /** Symbolic name (matches reviewpilot.ai.provider in yml). */
+    /** 提供方符号名（与 yml 中 reviewpilot.ai.provider 对应）。 */
     String name();
 
     /**
-     * Run a single completion (V1/V2).
+     * 单发式补全（V1/V2）：system + user 两条消息，返回纯文本。
      */
     String complete(String systemPrompt, String userPrompt);
 
     /**
-     * Multi-turn chat with message history and optional tool definitions (V3).
-     * The provider sends the full message list plus tool definitions to the
-     * LLM and returns either a text reply or tool calls.
+     * 多轮聊天（V3）：把完整消息历史和可选工具定义发给 LLM，
+     * 返回文本回复或工具调用列表。
      */
     AgentResponse chat(List<Message> messages, List<Tool> tools);
 
-    /** Model identifier for diagnostics (e.g. "deepseek-chat"). */
+    /** 供诊断展示用的模型标识（如 "deepseek-chat"）。 */
     default String modelName() { return null; }
 }

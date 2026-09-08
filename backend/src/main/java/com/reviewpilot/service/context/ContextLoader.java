@@ -14,31 +14,25 @@ import java.util.Map;
 import java.util.TreeSet;
 
 /**
- * Pulls a small window of code around each rule-detected risk so the AI sees
- * the surrounding lines, not just the diff hunk header.
+ * 围绕每条规则检出的风险，从 diff 中提取小窗口代码切片，让 AI 看到风险行前后的上下文而非只有 hunk 头。
  *
- * <p>We deliberately re-use what's already in {@code FileChange.hunks()}
- * rather than calling GitHub's raw-content API. The diff itself includes ~3
- * lines of context above and below each change, which is enough to anchor the
- * AI's reasoning. Adding a second HTTP call would double network latency for
- * almost no extra signal — and would force authentication for private repos.
+ * <p>刻意复用 {@code FileChange.hunks()} 里已有的内容，而不是再调 GitHub raw-content API：
+ * diff 自带变更行上下约 3 行上下文，足以锚定 AI 的推理；再加一次 HTTP 调用会让网络延迟翻倍
+ * 而信号几乎不增——还会迫使私有仓库鉴权。
  *
- * <p>Algorithm: for each risk, find the new-file line in the file's hunks,
- * collect ±{@link #WINDOW} surrounding lines, then merge slices that overlap
- * or touch (so two adjacent risks share one snippet instead of producing
- * duplicates). Risks whose line we can't locate are skipped — there's no
- * useful fallback.
+ * <p>算法：对每条风险，在文件的 hunks 中定位新文件行号，收集 ±{@link #WINDOW} 行，
+ * 然后合并重叠或相邻的切片（让两条邻近风险共享一段代码而不是产生重复）。
+ * 行号定位不到的风险直接跳过——没有有用的兜底方案。
  */
 @Component
 public class ContextLoader {
 
-    /** How many surrounding lines to include on each side of a risk line. */
+    /** 风险行每侧携带的上下文行数。 */
     static final int WINDOW = 5;
 
     /**
-     * Returns one {@link ContextSlice} per merged window. The slices preserve
-     * file order from the input list and are sorted by {@code startLine}
-     * within each file so the prompt reads top-to-bottom.
+     * 每个合并后的窗口返回一条 {@link ContextSlice}。切片保持输入的文件顺序，
+     * 文件内部按 {@code startLine} 排序，使 Prompt 自上而下可读。
      */
     public List<ContextSlice> load(List<FileChange> files, List<RiskItem> risks) {
         if (files == null || files.isEmpty() || risks == null || risks.isEmpty()) {
@@ -57,6 +51,7 @@ public class ContextLoader {
         return out;
     }
 
+    /** 按文件聚合风险行号（TreeSet 天然去重升序）；无文件/无行号的风险被丢弃。 */
     private static Map<String, TreeSet<Integer>> groupRiskLines(List<RiskItem> risks) {
         Map<String, TreeSet<Integer>> map = new HashMap<>();
         for (RiskItem r : risks) {
@@ -66,8 +61,9 @@ public class ContextLoader {
         return map;
     }
 
+    /** 为单个文件构建"新文件行号 → 渲染行"映射，再按 ±WINDOW 切窗并合并相邻窗口。 */
     private static List<ContextSlice> slicesFor(FileChange file, TreeSet<Integer> riskLines) {
-        // Flatten new-file content from hunks into a {newLine -> rendered display line} map.
+        // 把 hunks 里的新文件内容摊平成 {newLine -> 展示行} 映射（跳过被删除的行）
         Map<Integer, String> displayByLine = new HashMap<>();
         if (file.hunks() != null) {
             for (DiffHunk hunk : file.hunks()) {
@@ -75,6 +71,7 @@ public class ContextLoader {
                     if (line.type() == DiffLineType.REMOVED) continue;
                     int n = line.newLine();
                     if (n <= 0) continue;
+                    // 新增行标 '+'，其余标空格，让模型能区分改动与原文
                     char marker = line.type() == DiffLineType.ADDED ? '+' : ' ';
                     displayByLine.put(n, String.format("%c %4d: %s", marker, n, line.content()));
                 }
@@ -87,13 +84,14 @@ public class ContextLoader {
             int from = Math.max(1, risk - WINDOW);
             int to = risk + WINDOW;
             if (!windows.isEmpty() && from <= windows.get(windows.size() - 1)[1] + 1) {
-                // Adjacent or overlapping window — merge into the previous one.
+                // 与前一个窗口相邻或重叠——就地扩展合并
                 windows.get(windows.size() - 1)[1] = Math.max(windows.get(windows.size() - 1)[1], to);
             } else {
                 windows.add(new int[]{from, to});
             }
         }
 
+        // 按窗口收集实际存在的行；窗口内全是缺失行则跳过
         List<ContextSlice> result = new ArrayList<>();
         for (int[] w : windows) {
             List<String> rendered = new ArrayList<>();

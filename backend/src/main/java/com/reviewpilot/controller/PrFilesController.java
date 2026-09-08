@@ -11,9 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * Thin demo endpoint exercised in PR#2 to verify the GitHub fetch + diff
- * parsing pipeline end-to-end. PR#3 introduces the proper /api/review
- * endpoint that adds AI analysis on top of these primitives.
+ * 提供 GET /api/pr/files 接口：仅执行 GitHub 拉取 + diff 解析（不调用 LLM），
+ * 用于调试与验证预处理链路；完整 AI 评审请使用 POST /api/review。
  */
 @RestController
 @RequestMapping("/api/pr")
@@ -25,6 +24,7 @@ public class PrFilesController {
         this.query = query;
     }
 
+    /** include=patch 时在每个文件条目中附带原始 unified diff。 */
     @GetMapping("/files")
     public PrFilesResponse files(@RequestParam("prUrl") String prUrl,
                                  @RequestParam(name = "include", required = false) String include) {

@@ -6,7 +6,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
-/** GitHub code-search HTTP adapter. */
+/** GitHub 代码搜索的 HTTP 适配器（限流与缓存策略由 RepositorySearchService 负责）。 */
 @Component
 public class GithubCodeSearcher {
     private final WebClient github;
@@ -19,17 +19,16 @@ public class GithubCodeSearcher {
     }
 
     /**
-     * Search the PR's repository for a keyword. Returns up to 5 matching
-     * file paths. Transport failures propagate so they cannot become cached misses.
+     * 在 PR 所属仓库内搜索关键字，返回至多 5 个命中的文件路径。
+     * 传输层故障会向上抛出，防止它们被上层缓存成"查无结果"。
      *
-     * <p>The query is model-authored — and the model is steered by PR content an
-     * attacker writes — so it is carried as one encoded parameter value rather than
-     * concatenated into the URI: a raw {@code #} used to start a fragment, which
-     * silently dropped the {@code repo:} scope and searched all of GitHub with this
-     * service's privileged token.
+     * <p>查询词由模型生成——而模型可能被攻击者撰写的 PR 内容诱导——因此它必须作为
+     * 单个已编码的查询参数传递而非拼进 URI：裸 {@code #} 曾开启 fragment，
+     * 使 {@code repo:} 限定被静默丢弃，用本服务的高权限令牌搜索了整个 GitHub。
      */
     public String searchCode(PrUrl pr, String query) {
         try {
+            // repo: 限定把搜索钉死在 PR 所属仓库内
             String scoped = query + " repo:" + pr.owner() + "/" + pr.repo();
             SearchResult result = github.get()
                     .uri(b -> b.path("/search/code")

@@ -15,31 +15,23 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Flags catch blocks that catch one exception type and re-throw a DIFFERENT
- * type — the classic "exception swallow / type laundering" pattern that hides
- * the real cause from callers.
+ * 标记捕获一种异常却改抛另一种类型的 catch 块——经典的"异常吞换/类型洗白"模式，
+ * 它向调用方隐藏了真实原因。
  *
- * <p>Concrete pattern: within a few lines of a catch header, a {@code throw new
- * <Different>Exception(...)} appears. Most production cases are
- * {@code catch (IllegalArgumentException) -> throw new SerializationException}
- * style — caller can no longer distinguish "bad input" from "encoding bug" from
- * "config drift".
+ * <p>具体形态：catch 头附近几行内出现 {@code throw new <不同类型>Exception(...)}。
+ * 生产中最常见的例子是 {@code catch (IllegalArgumentException) -> throw new SerializationException}
+ * 风格——调用方再也无法区分"入参非法""编码 bug""配置漂移"。
  *
- * <p>Distinct from {@link BareCatchRule}, which only fires for silent swallows
- * (no log/throw at all). This rule fires when the exception IS re-thrown but
- * the type changed, which is a different and often more dangerous bug because
- * it looks like the exception is being handled.
+ * <p>与 {@link BareCatchRule} 的区别：那条只报告完全静默的吞掉（无日志/无 throw）；
+ * 本条报告异常确实被重抛但类型变了——这是另一种往往更危险的 bug，因为它看起来像在处理异常。
  *
- * <p>If the new throw passes the original exception as cause (e.g.
- * {@code throw new X("msg", e)}), severity is MEDIUM (cause chain preserved,
- * just re-typed). If the cause is dropped, severity is HIGH — debuggability
- * permanently lost at runtime.
+ * <p>若新 throw 把原异常作为 cause 传入（如 {@code throw new X("msg", e)}），
+ * 严重度为 MEDIUM（cause 链保住了，只是改了类型）；若丢弃 cause 则为 HIGH——
+ * 运行时永久失去可调试性。
  *
- * <p>Heuristic, patch-only — does not parse Java. Tuned for low false-positive
- * rate by:
- *   - Requiring the catch header and the {@code throw new} on different ADDED
- *     lines within the same hunk (no flagging of context-only re-throws).
- *   - Requiring the thrown type's simple name to differ from the caught type.
+ * <p>启发式、只看 patch——不解析 Java。通过以下手段压低误报率：
+ *   - 要求 catch 头与 {@code throw new} 位于同一 hunk 的不同 ADDED 行（不报只在上下文里出现的重抛）。
+ *   - 要求抛出类型的简单名与被捕获类型不同。
  */
 @Component
 public class ExceptionSwallowingRule implements RiskRule {
@@ -50,13 +42,14 @@ public class ExceptionSwallowingRule implements RiskRule {
     private static final Pattern THROW_NEW = Pattern.compile(
             "throw\\s+new\\s+([\\w.]+)\\s*\\(([^)]*)\\)");
 
-    private static final int LOOK_AHEAD_LINES = 8;
+    private static final int LOOK_AHEAD_LINES = 8;   // catch 头之后最多探测的行数
 
     @Override
     public String id() {
         return "exception-swallowing";
     }
 
+    /** 只扫 Java 文件，逐 hunk 检查。 */
     @Override
     public List<RiskItem> scan(FileChange change) {
         List<RiskItem> out = new ArrayList<>();
@@ -69,6 +62,7 @@ public class ExceptionSwallowingRule implements RiskRule {
         return out;
     }
 
+    /** 在 ADDED 的 catch 头之后向前探测 ADDED 的 throw new，类型不同即报告。 */
     private void scanHunk(String filename, DiffHunk hunk, List<RiskItem> out) {
         List<DiffLine> lines = hunk.lines();
         for (int i = 0; i < lines.size(); i++) {
@@ -79,7 +73,7 @@ public class ExceptionSwallowingRule implements RiskRule {
             if (!cm.find()) continue;
             String caughtType = simpleName(cm.group(1));
 
-            // Look ahead for a `throw new X(...)` on an ADDED line within range.
+            // 在范围内向前寻找位于 ADDED 行的 `throw new X(...)`
             int looked = 0;
             for (int j = i + 1; j < lines.size() && looked < LOOK_AHEAD_LINES; j++) {
                 DiffLine probe = lines.get(j);
@@ -92,6 +86,7 @@ public class ExceptionSwallowingRule implements RiskRule {
                 String thrownType = simpleName(tm.group(1));
                 if (thrownType.equals(caughtType)) continue;
 
+                // cause 是否随新异常传递，决定 MEDIUM 还是 HIGH
                 boolean preservesCause = mentionsExceptionVar(catchLine.content(), tm.group(2));
                 RiskLevel level = preservesCause ? RiskLevel.MEDIUM : RiskLevel.HIGH;
                 String suffix = preservesCause
@@ -107,17 +102,18 @@ public class ExceptionSwallowingRule implements RiskRule {
         }
     }
 
-    /** Return whether the throw-new args reference the caught exception variable. */
+    /** 判断 throw-new 的参数列表是否引用了被捕获的异常变量（即 cause 是否保留）。 */
     private static boolean mentionsExceptionVar(String catchHeader, String throwArgs) {
-        // Rough: pull out the variable name after the type, then look for it in args.
-        // catch (FooException e) -> "e"; catch (FooException ex) -> "ex".
+        // 粗略做法：从类型后抽出变量名，再看它是否出现在参数里。
+        // catch (FooException e) -> "e"；catch (FooException ex) -> "ex"
         Matcher m = Pattern.compile("catch\\s*\\(\\s*[\\w.]+\\s+(\\w+)\\s*\\)").matcher(catchHeader);
         if (!m.find()) return false;
         String var = m.group(1);
-        // Check the var appears as a standalone argument, not as part of another identifier.
+        // 要求该变量作为独立实参出现，而不是别的标识符的一部分
         return Pattern.compile("(^|[^\\w])" + Pattern.quote(var) + "([^\\w]|$)").matcher(throwArgs).find();
     }
 
+    /** 取全限定名的简单类名（最后一个 '.' 之后）。 */
     private static String simpleName(String fqn) {
         int dot = fqn.lastIndexOf('.');
         return dot < 0 ? fqn : fqn.substring(dot + 1);

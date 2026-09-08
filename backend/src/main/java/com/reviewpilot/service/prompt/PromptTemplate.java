@@ -3,16 +3,12 @@ package com.reviewpilot.service.prompt;
 import com.reviewpilot.service.classifier.FileType;
 
 /**
- * Per-{@link FileType} guidance text that {@code PromptBuilder} stitches into
- * the user prompt above each group of files. The point isn't a different JSON
- * schema — that stays uniform — but to nudge the AI toward the review
- * concerns that matter most for that kind of file. A controller review and a
- * SQL review should not read the same.
+ * 按 {@link FileType} 划分的评审关注点文案，由 {@code PromptBuilder} 拼接在每组文件之前。
+ * 目的不是换 JSON Schema（Schema 保持统一），而是把 AI 推向该类文件最要紧的评审维度——
+ * Controller 的评审和 SQL 的评审不应该长得一样。
  *
- * <p>Each entry is a few short bullets. Bullets are deliberately concrete
- * ("validate input parameters", "watch for N+1 queries") rather than vague
- * ("write good code"), since the model treats specifics as actionable
- * constraints and ignores platitudes.
+ * <p>每项只有几条简短要点。要点刻意写得具体（"校验入参""警惕 N+1 查询"）
+ * 而非空泛（"写好代码"），因为模型会把具体项当作可执行约束，而忽略正确的废话。
  */
 public enum PromptTemplate {
 
@@ -76,6 +72,7 @@ public enum PromptTemplate {
         return guidance;
     }
 
+    /** 按 FileType 查找对应模板，找不到时回退 OTHER。 */
     public static PromptTemplate forType(FileType type) {
         for (PromptTemplate t : values()) {
             if (t.type == type) return t;

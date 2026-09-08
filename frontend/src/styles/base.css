@@ -1,0 +1,174 @@
+/* ═══════════════════════════════════════════════
+   ReviewPilot 设计令牌 — 玻璃拟态（浅色版）
+   柔和晨光渐变底 + 白色磨砂玻璃面板 + 深色文字
+   字体：JetBrains Mono（技术标识）/ IBM Plex Sans（正文）
+   ═══════════════════════════════════════════════ */
+
+:root {
+  /* 玻璃层 */
+  --glass-bg:        rgba(255, 255, 255, 0.62);
+  --glass-bg-fallback: rgba(248, 250, 253, 0.96);
+  --glass-border:    rgba(255, 255, 255, 0.85);
+  --glass-border-strong: rgba(148, 163, 184, 0.5);
+  --glass-blur:      blur(18px) saturate(160%);
+  --glass-shadow:    0 8px 32px rgba(76, 88, 140, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-hover:     rgba(255, 255, 255, 0.78);
+
+  /* 页面底色（浅雾蓝） */
+  --bg:            #EDF1F9;
+  --surface:       rgba(255, 255, 255, 0.55);
+  --surface-2:     rgba(100, 116, 150, 0.14);
+  --border:        var(--glass-border-strong);
+  --border-strong: rgba(100, 116, 150, 0.4);
+
+  /* 文字层（浅底深字，全部满足 AA） */
+  --fg:        #1E293B;
+  --fg-muted:  #475569;
+  --fg-subtle: #5B6B82;
+
+  /* 语义色（深阶，保证浅玻璃底 4.5:1） */
+  --green:      #047857;
+  --green-soft: rgba(5, 150, 105, 0.12);
+  --red:        #E11D48;
+  --red-soft:   rgba(225, 29, 72, 0.10);
+  --amber:      #B45309;
+  --amber-soft: rgba(217, 119, 6, 0.14);
+  --blue:       #0369A1;
+  --blue-soft:  rgba(2, 132, 199, 0.12);
+  --violet:     #6D28D9;
+  --violet-soft: rgba(124, 58, 237, 0.12);
+
+  /* 品牌渐变（用于按钮等大面积填充，配白字） */
+  --brand-gradient: linear-gradient(120deg, #4F46E5, #0EA5E9);
+  --on-brand:       #FFFFFF;
+
+  /* 字体 */
+  --font-sans:  'IBM Plex Sans', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono:  'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* 圆角与间距节奏（4/8 体系） */
+  --radius-sm: 8px;
+  --radius:    16px;
+  --radius-lg: 22px;
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 48px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-font-smoothing: antialiased; text-size-adjust: 100%; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--fg);
+  line-height: 1.55;
+  background:
+    radial-gradient(1100px 750px at 10% -10%, rgba(129, 140, 248, 0.45), transparent 60%),
+    radial-gradient(950px 650px at 110% 5%, rgba(103, 232, 249, 0.55), transparent 55%),
+    radial-gradient(1000px 800px at 45% 120%, rgba(249, 168, 212, 0.40), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* 移动端提升正文尺寸，保证可读性 */
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+}
+
+a { color: var(--blue); }
+
+:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(100, 116, 150, 0.35); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 150, 0.55); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 极光装饰层：玻璃后面必须有可折射的内容才有质感 ── */
+.bg-decor {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+.blob--violet {
+  width: 520px; height: 520px;
+  background: #A5B4FC;
+  opacity: 0.65;
+  top: -160px; left: -140px;
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+.blob--cyan {
+  width: 460px; height: 460px;
+  background: #67E8F9;
+  opacity: 0.6;
+  top: 6%; right: -170px;
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+.blob--pink {
+  width: 560px; height: 560px;
+  background: #F9A8D4;
+  opacity: 0.45;
+  bottom: -240px; left: 30%;
+  animation: drift-c 38s ease-in-out infinite alternate;
+}
+@keyframes drift-a { to { transform: translate(90px, 70px) scale(1.15); } }
+@keyframes drift-b { to { transform: translate(-70px, 110px) scale(0.9); } }
+@keyframes drift-c { to { transform: translate(60px, -80px) scale(1.1); } }
+
+/* ── 玻璃面板工具类：所有卡片级表面统一使用 ── */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
+/* 不支持 backdrop-filter 的环境回退为近实心浅色，保证对比度 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: var(--glass-bg-fallback); }
+}
+
+/* 仅供屏幕阅读器的可见标签 */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 小节标题：等宽、大写、字距，贯穿全站的分区标签样式 */
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

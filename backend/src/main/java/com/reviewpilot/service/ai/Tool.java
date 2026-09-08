@@ -3,7 +3,6 @@ package com.reviewpilot.service.ai;
 import java.util.Map;
 
 /**
- * Tool definition exposed to the LLM. {@code parameters} is a JSON Schema
- * object describing the tool's arguments.
+ * 暴露给 LLM 的工具定义，{@code parameters} 为描述工具入参的 JSON Schema 对象。
  */
 public record Tool(String name, String description, Map<String, Object> parameters) {}

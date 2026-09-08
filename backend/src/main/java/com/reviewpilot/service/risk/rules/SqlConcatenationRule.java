@@ -15,18 +15,16 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Flags string-concatenated SQL — added lines that build a SQL query by
- * concatenating user-controlled values via {@code +}, instead of using a
- * {@code PreparedStatement} placeholder. Classic SQL injection setup.
+ * 标记字符串拼接的 SQL——通过 {@code +} 拼接用户可控值来构造查询的新增行，
+ * 而不是使用 {@code PreparedStatement} 占位符。典型的 SQL 注入温床。
  *
- * <p>HIGH severity. We accept some false positives on innocuous SQL strings;
- * the cost of missing one of these is much higher than the cost of a noisy
- * comment.
+ * <p>HIGH 严重度。无害 SQL 常量上的少量误报可以接受：
+ * 漏掉一条真实注入的代价远高于一条啰嗦的评论。
  */
 @Component
 public class SqlConcatenationRule implements RiskRule {
 
-    /** A line that declares/assigns a SQL-shaped string AND does {@code "..." +} concatenation. */
+    /** 命中条件：一行同时含 SQL 形状的字面量与 {@code "..." +} 拼接。 */
     private static final Pattern SQL_KEYWORD = Pattern.compile(
             "(?i)\\b(select|insert\\s+into|update|delete\\s+from|where)\\b");
 
@@ -37,11 +35,12 @@ public class SqlConcatenationRule implements RiskRule {
 
     @Override
     public boolean appliesTo(FileType type) {
-        // Java service/repository code is where this typically lands. SQL files
-        // themselves don't have variable concatenation in the Java sense.
+        // 这类问题通常落在 Java 的 service/repository 代码里；
+        // SQL 文件本身不存在 Java 意义上的变量拼接
         return type == FileType.SERVICE || type == FileType.CONTROLLER || type == FileType.OTHER;
     }
 
+    /** 三条件叠加（SQL 关键字 + 引号 + 与标识符的拼接）以降低误报。 */
     @Override
     public List<RiskItem> scan(FileChange change) {
         List<RiskItem> out = new ArrayList<>();
@@ -53,9 +52,8 @@ public class SqlConcatenationRule implements RiskRule {
                 if (line.type() != DiffLineType.ADDED) continue;
                 String content = line.content();
 
-                // Heuristic: a quoted SQL keyword followed by `+ <identifier>` on
-                // the same line. Avoids flagging plain SQL constants and avoids
-                // flagging string concatenation that has nothing to do with SQL.
+                // 启发式：同一行内引号包裹的 SQL 关键字后跟 `+ 标识符`。
+                // 既避开纯 SQL 常量，也避开与 SQL 无关的普通字符串拼接
                 if (!SQL_KEYWORD.matcher(content).find()) continue;
                 if (!content.contains("\"")) continue;
                 if (!hasConcatWithIdentifier(content)) continue;
@@ -70,6 +68,7 @@ public class SqlConcatenationRule implements RiskRule {
         return out;
     }
 
+    /** 粗略判断：找到 `" +` 之后是否还有字母/下划线（说明拼的是变量而非另一段字面量）。 */
     private static boolean hasConcatWithIdentifier(String content) {
         // crude: find a `" +` followed eventually by an identifier char.
         int idx = content.indexOf("\" +");

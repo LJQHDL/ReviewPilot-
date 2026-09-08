@@ -11,15 +11,14 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Restricts which repositories this service will act on.
+ * 限制本服务允许操作的仓库范围。
  *
- * <p>Every GitHub call uses the server's own {@code GITHUB_TOKEN} while the caller
- * picks the repository — the classic confused deputy. An empty allowlist keeps
- * today's behaviour (any repo; right for local and demo use); set it before
- * pointing a token with private-repo access at a network callers control.
+ * <p>所有 GitHub 调用都使用服务端自己的 {@code GITHUB_TOKEN}，而仓库由调用方挑选——
+ * 这是典型的混淆代理（confused deputy）风险。空白名单保持现状行为（任意仓库，适合本地
+ * 与演示场景）；当持有私有仓库访问权的 Token 暴露给不可信调用方之前，必须先配置它。
  *
- * <p>Entries are {@code owner/repo} with {@code *} allowed in either segment,
- * e.g. {@code octocat/Hello-World}, {@code octocat/*}, {@code spring-*&#47;*}.
+ * <p>条目格式为 {@code owner/repo}，两段均可用 {@code *} 通配，
+ * 如 {@code octocat/Hello-World}、{@code octocat/*}、{@code spring-*&#47;*}。
  */
 @Component
 public class RepoAllowlist {
@@ -31,6 +30,7 @@ public class RepoAllowlist {
     public RepoAllowlist(GithubProperties props) {
         this.patterns = compile(props.allowedRepos());
         if (patterns.isEmpty()) {
+            // 有 Token 却无白名单：服务可代调用方读取任意仓库，启动时告警提醒
             if (!props.token().isBlank()) {
                 log.warn("GITHUB_TOKEN is set but reviewpilot.github.allowed-repos is empty: "
                         + "this service can read, with its own token, any repository a caller "
@@ -41,10 +41,10 @@ public class RepoAllowlist {
         }
     }
 
-    /** @throws RepoNotAllowedException if this PR's repository is outside the allowlist. */
+    /** @throws RepoNotAllowedException PR 所属仓库不在白名单内时抛出 */
     public void requireAllowed(PrUrl pr) {
         if (patterns.isEmpty()) {
-            return;
+            return;   // 空白名单 = 不限制
         }
         String target = pr.owner() + "/" + pr.repo();
         boolean allowed = patterns.stream().anyMatch(p -> p.matcher(target).matches());
@@ -54,6 +54,7 @@ public class RepoAllowlist {
         }
     }
 
+    /** 把 owner/repo 通配条目编译为正则：仅 '*' 是通配符，其余字符全部字面量化。 */
     private static List<Pattern> compile(List<String> entries) {
         List<Pattern> out = new ArrayList<>();
         if (entries == null) {
@@ -65,8 +66,8 @@ public class RepoAllowlist {
             }
             StringBuilder regex = new StringBuilder();
             for (char c : entry.trim().toCharArray()) {
-                // Only '*' is a wildcard; everything else is literal, so a dot in
-                // "a.b/repo" cannot match "axb/repo".
+                // 只有 '*' 是通配符；其余一律 Pattern.quote 转义，
+                // 这样 "a.b/repo" 里的点不会退化成能匹配 "axb/repo" 的元字符
                 regex.append(c == '*' ? ".*" : Pattern.quote(String.valueOf(c)));
             }
             out.add(Pattern.compile(regex.toString()));

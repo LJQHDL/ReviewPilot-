@@ -3,12 +3,12 @@ package com.reviewpilot.service.ai;
 import java.util.List;
 
 /**
- * A single message in a multi-turn LLM conversation. Supports all four
- * OpenAI-compatible roles: system, user, assistant, and tool.
+ * 多轮 LLM 会话中的一条消息，兼容 OpenAI 的四种角色：system / user / assistant / tool。
  */
 public record Message(String role, String content, String toolCallId,
                       List<ToolCall> toolCalls) {
 
+    // 以下静态工厂按角色构造消息：tool 消息需回填 toolCallId 以关联对应的工具调用
     public static Message system(String content) {
         return new Message("system", content, null, null);
     }

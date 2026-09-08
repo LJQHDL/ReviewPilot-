@@ -13,17 +13,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * DeepSeek implementation of {@link ModelProvider}, calling the OpenAI-compatible
- * {@code POST /v1/chat/completions} endpoint.
+ * {@link ModelProvider} 的 DeepSeek 实现，调用 OpenAI 兼容的 {@code POST /v1/chat/completions} 端点。
  * <p>
- * Configuration (env-driven, see {@link DeepSeekProperties}):
+ * 配置（由环境变量驱动，见 {@link DeepSeekProperties}）：
  * <pre>
- *   reviewpilot.ai.deepseek.api-key:   ${DEEPSEEK_API_KEY:}     # NEVER commit
+ *   reviewpilot.ai.deepseek.api-key:   ${DEEPSEEK_API_KEY:}     # 严禁提交密钥
  *   reviewpilot.ai.deepseek.model:     deepseek-chat
  *   reviewpilot.ai.deepseek.api-base:  https://api.deepseek.com
  * </pre>
- * The API key is read from the env var; logs only ever show
- * {@link DeepSeekProperties#redactedKey()}.
+ * API Key 只从环境变量读取；日志中只允许出现 {@link DeepSeekProperties#redactedKey()}。
  */
 @Component
 public class DeepSeekProvider implements ModelProvider {
@@ -51,6 +49,7 @@ public class DeepSeekProvider implements ModelProvider {
         return props.model();
     }
 
+    /** 多轮聊天（V3 ReAct 用）：携带完整消息历史与可选工具定义，返回文本或工具调用。 */
     @Override
     public AgentResponse chat(List<Message> messages, List<Tool> tools) {
         if (!props.isConfigured()) {
@@ -58,6 +57,7 @@ public class DeepSeekProvider implements ModelProvider {
                     "DeepSeek API key is not set. Export DEEPSEEK_API_KEY before calling /api/review.");
         }
 
+        // 组装 OpenAI 兼容请求体；messages/tools 经 OpenAiMessageMapper 转成线格式
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("model", props.model());
         body.put("temperature", props.temperature());
@@ -81,6 +81,7 @@ public class DeepSeekProvider implements ModelProvider {
             throw new AiProviderException("DeepSeek response missing message");
         }
 
+        // 把线格式响应翻译回内部模型：文本 + 工具调用 + 真实 token 用量
         String content = first.message().content();
         List<ToolCall> toolCalls = first.message().toolCalls() != null
                 ? first.message().toolCalls().stream().map(DsToolCall::toToolCall).toList()
@@ -94,6 +95,7 @@ public class DeepSeekProvider implements ModelProvider {
                 promptTokens, completionTokens);
     }
 
+    /** 单发式补全（V1/V2）：system+user 两条消息，返回纯文本内容。 */
     @Override
     public String complete(String systemPrompt, String userPrompt) {
         if (!props.isConfigured()) {
@@ -128,14 +130,12 @@ public class DeepSeekProvider implements ModelProvider {
     }
 
     /**
-     * Call the DeepSeek API with up to 2 retries for transient network errors
-     * (Connection reset, timeout). Non-transient errors (4xx, 5xx with status)
-     * are NOT retried and fail immediately.
+     * 带重试的 DeepSeek 调用：仅对瞬时网络错误（连接重置、超时）重试最多 2 次；
+     * 带 HTTP 状态码的 4xx/5xx 属于确定性错误，不重试、立即抛出。
      */
     private DsCompletion callWithRetry(Map<String, Object> body, String caller) {
-        // Cost of one call is timeout x (maxRetries + 1) plus backoff, and nothing can
-        // preempt it once started — these two numbers decide how real the request
-        // budget in ReviewPipeline is.
+        // 单次调用最坏耗时 = timeout x (maxRetries+1) + 退避，且开始后无法抢占——
+        // 这两个数字决定了 ReviewPipeline 里的请求预算是否真实可靠。
         int maxRetries = props.maxRetries();
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
@@ -146,7 +146,7 @@ public class DeepSeekProvider implements ModelProvider {
                         .bodyToMono(DsCompletion.class)
                         .block();
             } catch (WebClientResponseException e) {
-                // HTTP status errors (4xx/5xx) — not transient, don't retry
+                // 带状态码的 HTTP 错误（4xx/5xx）非瞬时故障，直接失败
                 String respBody = e.getResponseBodyAsString();
                 log.warn("DeepSeek {} call failed: status={} body={}",
                         caller, e.getStatusCode().value(),
@@ -154,6 +154,7 @@ public class DeepSeekProvider implements ModelProvider {
                 throw new AiProviderException(
                         "DeepSeek API call failed with status " + e.getStatusCode().value(), e);
             } catch (RuntimeException e) {
+                // 按错误文本猜测是否为瞬时故障；退避时间为 attempt+1 秒
                 String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 boolean isTransient = msg.contains("reset") || msg.contains("timeout")
                         || msg.contains("timed out") || msg.contains("refused");
@@ -173,7 +174,7 @@ public class DeepSeekProvider implements ModelProvider {
         return null;
     }
 
-    // --- DTOs (subset of the OpenAI-compatible schema) -----------------------
+    // --- 响应 DTO（OpenAI 兼容 Schema 的最小子集） -----------------------
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DsCompletion(String id, String model, List<DsChoice> choices,
@@ -189,10 +190,12 @@ public class DeepSeekProvider implements ModelProvider {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DsToolCall(String id, String type, DsFunction function) {
+        /** 转为内部 ToolCall：arguments 是 JSON 字符串，需解析为 Map。 */
         public ToolCall toToolCall() {
             return new ToolCall(id, function.name(),
                     parseArguments(function.arguments()));
         }
+        /** 解析失败时返回空 Map——让上层把"无参数"当作普通错误处理而非崩溃。 */
         private static Map<String, Object> parseArguments(String json) {
             if (json == null || json.isBlank()) return Map.of();
             try {

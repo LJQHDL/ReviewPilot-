@@ -5,21 +5,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.time.Duration;
 
 /**
- * Binds {@code reviewpilot.ai.deepseek.*} from application.yml.
+ * 绑定 application.yml 中 {@code reviewpilot.ai.deepseek.*} 配置项的不可变记录，并为各字段提供默认值。
  * <p>
- * The API key MUST come from the {@code DEEPSEEK_API_KEY} environment variable
- * (yml uses {@code ${DEEPSEEK_API_KEY:}}). Don't commit a key value to yml,
- * env files, or tests — see README "Secrets" section.
+ * API Key 必须来自 {@code DEEPSEEK_API_KEY} 环境变量（yml 中写 {@code ${DEEPSEEK_API_KEY:}}），
+ * 切勿把密钥值提交到 yml、env 文件或测试代码中。
  *
- * @param apiBase     Override for self-hosted gateways. Defaults to
- *                    https://api.deepseek.com.
- * @param apiKey      The bearer token. Empty = provider is disabled and
- *                    {@code /api/review} returns a clear error instead of crashing.
- * @param model       DeepSeek model id (e.g. deepseek-chat, deepseek-reasoner).
- * @param timeout     HTTP read timeout. Defaults to 60s — code analysis on
- *                    large PRs is slow.
- * @param maxTokens   Output token cap. 4096 covers JSON for most PRs.
- * @param temperature Sampling temperature. 0.2 keeps the JSON output stable.
+ * @param apiBase     API 基地址，可覆盖为自建网关，默认 https://api.deepseek.com
+ * @param apiKey      Bearer Token，为空表示服务未启用，/api/review 会返回明确错误而非崩溃
+ * @param model       DeepSeek 模型 ID（如 deepseek-chat、deepseek-reasoner）
+ * @param timeout     HTTP 读取超时，默认 60 秒（大 PR 的代码分析较慢）
+ * @param maxTokens   输出 Token 上限，4096 足以覆盖大多数 PR 的 JSON 结果
+ * @param temperature 采样温度，0.2 可让 JSON 输出保持稳定
  */
 @ConfigurationProperties("reviewpilot.ai.deepseek")
 public record DeepSeekProperties(
@@ -32,6 +28,7 @@ public record DeepSeekProperties(
         Integer maxRetries
 ) {
 
+    /** 紧凑构造器：为缺失或非法的配置值填充默认值。 */
     public DeepSeekProperties {
         if (apiBase == null || apiBase.isBlank()) {
             apiBase = "https://api.deepseek.com";
@@ -56,13 +53,13 @@ public record DeepSeekProperties(
         }
     }
 
+    /** API Key 是否已配置（未配置时评审接口应直接报错）。 */
     public boolean isConfigured() {
         return !apiKey.isBlank();
     }
 
     /**
-     * Returns a redacted form of the key for logs ({@code ****<last4>}).
-     * Never log the full {@link #apiKey()}.
+     * 返回密钥的脱敏形式（{@code ****后4位}）供日志使用，严禁打印完整 {@link #apiKey()}。
      */
     public String redactedKey() {
         if (apiKey.isBlank()) {

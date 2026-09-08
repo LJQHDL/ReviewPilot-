@@ -1,9 +1,6 @@
 package com.reviewpilot.model;
 
-/**
- * Risk severity used by both the rule-based RiskDetector (PR#5) and AI output
- * (PR#3). Order: HIGH > MEDIUM > LOW. The frontend renders this as a colored tag.
- */
+/** 风险严重度枚举（HIGH &gt; MEDIUM &gt; LOW），规则检测与 AI 输出共用，前端渲染为彩色标签。 */
 public enum RiskLevel {
     HIGH,
     MEDIUM,

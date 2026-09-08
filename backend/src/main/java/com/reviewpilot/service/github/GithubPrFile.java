@@ -3,9 +3,9 @@ package com.reviewpilot.service.github;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Subset of GitHub's "List PR files" response we care about.
+ * GitHub "List PR files" 响应中本服务关心的字段子集。
  * <p>
- * Endpoint: {@code GET /repos/{owner}/{repo}/pulls/{number}/files}
+ * 端点：{@code GET /repos/{owner}/{repo}/pulls/{number}/files}
  */
 public record GithubPrFile(
         String filename,

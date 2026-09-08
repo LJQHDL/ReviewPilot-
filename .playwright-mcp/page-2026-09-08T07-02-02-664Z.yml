@@ -1,0 +1,128 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e11]: ReviewPilot
+        - generic [ref=e12]: AI PR 评审
+      - generic [ref=e13]:
+        - generic [ref=e14]: GitHub PR 地址
+        - generic [ref=e15]:
+          - textbox "GitHub PR 地址" [ref=e16]:
+            - /placeholder: 粘贴 GitHub PR 地址，如 github.com/owner/repo/pull/12
+            - text: https://github.com/apache/dubbo/pull/16345
+          - generic [aria-hidden]: /
+        - button "开始分析" [ref=e17] [cursor=pointer]
+      - paragraph [ref=e21]: 格式：https://github.com/所有者/仓库/pull/编号
+  - main [ref=e22]:
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - 'link "apache/ dubbo #16345" [ref=e39] [cursor=pointer]':
+          - /url: https://github.com/apache/dubbo/pull/16345
+          - text: apache/
+          - generic [ref=e40]: dubbo
+          - text: "#16345"
+        - generic [ref=e44]: 7 个变更文件
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - heading "需要关注" [level=2] [ref=e47]
+          - paragraph [ref=e51]: 存在 2 条 HIGH 级问题，请逐条确认
+        - generic [ref=e52]:
+          - generic [ref=e53]: 2 条 HIGH
+          - generic [ref=e54]: 1 条 MEDIUM
+          - generic [ref=e55]: 1 条 LOW
+      - generic [ref=e56]:
+        - heading "关键发现" [level=3] [ref=e57]
+        - list [ref=e58]:
+          - listitem [ref=e59]: 连接迁移从阻塞式锁改为 AtomicReference.compareAndSet，吞吐预期提升
+          - listitem [ref=e60]: CAS 失败路径未重试，双线程同时看到 old==null 时可能跳过迁移
+          - listitem [ref=e61]: 新增 200ms 固定重试间隔在 1 万连接场景下存在惊群风险
+      - region [ref=e62]:
+        - heading "风险 4" [level=3] [ref=e63]:
+          - text: 风险
+          - generic [ref=e64]: "4"
+        - group "按风险等级过滤" [ref=e65]:
+          - button "全部 4" [pressed] [ref=e66] [cursor=pointer]:
+            - generic [ref=e67]: 全部
+            - generic [ref=e68]: "4"
+          - button "HIGH 2" [ref=e69] [cursor=pointer]:
+            - generic [ref=e70]: HIGH
+            - generic [ref=e71]: "2"
+          - button "MEDIUM 1" [ref=e72] [cursor=pointer]:
+            - generic [ref=e73]: MEDIUM
+            - generic [ref=e74]: "1"
+          - button "LOW 1" [ref=e75] [cursor=pointer]:
+            - generic [ref=e76]: LOW
+            - generic [ref=e77]: "1"
+        - list [ref=e78]:
+          - listitem [ref=e79]:
+            - generic [ref=e80]:
+              - button "HIGH dubbo-rpc/dubbo-rpc-triple/src/main/java/org/apache/dubbo/rpc/protocol/triple/TripleConnection.java:125" [expanded] [active] [ref=e81] [cursor=pointer]:
+                - generic [ref=e82]: HIGH
+                - generic [ref=e83]: dubbo-rpc/dubbo-rpc-triple/src/main/java/org/apache/dubbo/rpc/protocol/triple/TripleConnection.java:125
+              - button "复制该风险内容" [ref=e86] [cursor=pointer]
+            - generic [ref=e90]:
+              - paragraph [ref=e91]: "[CERTAIN] channelRef.compareAndSet(old, new) at L120 is not retried on failure — if two threads both see old==null, only one CAS succeeds and the other silently skips migration. Between reading the old value and calling compareAndSet, the reference could change A→B→A (ABA): a reconnect that swaps the channel away and back would make the CAS succeed incorrectly. Suggest using AtomicStampedReference or a monotonic generation counter."
+              - link "在 GitHub 查看该文件 ↗" [ref=e92] [cursor=pointer]:
+                - /url: https://github.com/apache/dubbo/pull/16345/files
+          - listitem [ref=e93]:
+            - generic [ref=e94]:
+              - button "HIGH dubbo-rpc/dubbo-rpc-triple/src/main/java/org/apache/dubbo/rpc/protocol/triple/TripleConnection.java:88 [LIKELY] catch (Exception e) 后仅计数重试、丢弃原始异常类型，调用方无法区分连接失效与协议错误。" [ref=e95] [cursor=pointer]:
+                - generic [ref=e96]: HIGH
+                - generic [ref=e97]: dubbo-rpc/dubbo-rpc-triple/src/main/java/org/apache/dubbo/rpc/protocol/triple/TripleConnection.java:88
+                - generic [ref=e98]: "[LIKELY] catch (Exception e) 后仅计数重试、丢弃原始异常类型，调用方无法区分连接失效与协议错误。"
+              - button "复制该风险内容" [ref=e101] [cursor=pointer]
+          - listitem [ref=e105]:
+            - generic [ref=e106]:
+              - button "MEDIUM dubbo-common/src/main/java/org/apache/dubbo/common/timer/HashedWheelTimer.java:42 [LIKELY] 200ms 重试延迟对单连接安全，但 GOAWAY 广播时 10k 连接同时触发会形成集群级惊群，建议加 jitter。" [ref=e107] [cursor=pointer]:
+                - generic [ref=e108]: MEDIUM
+                - generic [ref=e109]: dubbo-common/src/main/java/org/apache/dubbo/common/timer/HashedWheelTimer.java:42
+                - generic [ref=e110]: "[LIKELY] 200ms 重试延迟对单连接安全，但 GOAWAY 广播时 10k 连接同时触发会形成集群级惊群，建议加 jitter。"
+              - button "复制该风险内容" [ref=e113] [cursor=pointer]
+          - listitem [ref=e117]:
+            - generic [ref=e118]:
+              - button "LOW dubbo-rpc/dubbo-rpc-triple/src/main/java/org/apache/dubbo/rpc/protocol/triple/ResourceToFrameMapping.java:67 [CERTAIN] 新增日志使用 System.out.println，应改用框架 Logger。" [ref=e119] [cursor=pointer]:
+                - generic [ref=e120]: LOW
+                - generic [ref=e121]: dubbo-rpc/dubbo-rpc-triple/src/main/java/org/apache/dubbo/rpc/protocol/triple/ResourceToFrameMapping.java:67
+                - generic [ref=e122]: "[CERTAIN] 新增日志使用 System.out.println，应改用框架 Logger。"
+              - button "复制该风险内容" [ref=e125] [cursor=pointer]
+      - region [ref=e129]:
+        - heading "建议 4" [level=3] [ref=e130]:
+          - text: 建议
+          - generic [ref=e131]: "4"
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - heading "dubbo-rpc/dubbo-rpc-triple/src/main/java/org/apache/dubbo/rpc/protocol/triple/TripleConnection.java" [level=4] [ref=e134]
+            - list [ref=e135]:
+              - listitem [ref=e136]:
+                - generic [ref=e137]: L120
+                - generic [ref=e138]: 为 CAS 交换引入 stamp/generation，或在失败分支递归重试，消除 ABA 窗口。
+              - listitem [ref=e139]:
+                - generic [ref=e140]: L88
+                - generic [ref=e141]: 保留原始异常类型分层：TransportException 与 ProtocolException 分开处理，cause 链不要丢。
+          - generic [ref=e142]:
+            - heading "dubbo-common/src/main/java/org/apache/dubbo/common/timer/HashedWheelTimer.java" [level=4] [ref=e143]
+            - list [ref=e144]:
+              - listitem [ref=e145]:
+                - generic [ref=e146]: L42
+                - generic [ref=e147]: retryDelay 增加 ±50ms 随机抖动，避免集群级同步重试风暴。
+          - generic [ref=e148]:
+            - heading "(general)" [level=4] [ref=e149]
+            - list [ref=e150]:
+              - listitem [ref=e151]:
+                - generic [ref=e152]: 为迁移路径补充并发压测用例（双线程同时 swap），覆盖 ABA 场景。
+      - generic [ref=e153]:
+        - generic [ref=e154]:
+          - generic [ref=e155]: 模型
+          - text: deepseek / deepseek-chat
+        - generic [ref=e156]:
+          - generic [ref=e157]: ReAct
+          - text: 5 轮 · 4 次工具调用
+        - generic [ref=e158]:
+          - generic [ref=e159]: 质检
+          - text: 修订 1 次
+        - generic [ref=e160]:
+          - generic [ref=e161]: Tokens
+          - text: 12408 + 1521
+        - generic [ref=e162]:
+          - generic [ref=e163]: 耗时
+          - text: 18.2s

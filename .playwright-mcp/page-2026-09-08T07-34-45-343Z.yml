@@ -1,0 +1,27 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e11]: ReviewPilot
+        - generic [ref=e12]: AI PR 评审
+      - generic [ref=e13]:
+        - generic [ref=e14]: GitHub PR 地址
+        - generic [ref=e15]:
+          - textbox "GitHub PR 地址" [ref=e16]:
+            - /placeholder: 粘贴 GitHub PR 地址，如 github.com/owner/repo/pull/12
+          - generic [aria-hidden]: /
+        - button "开始分析" [ref=e17] [cursor=pointer]
+      - paragraph [ref=e21]: 格式：https://github.com/所有者/仓库/pull/编号
+  - main [ref=e22]:
+    - generic [ref=e23]:
+      - heading "粘贴 GitHub PR 地址，开始 AI 评审" [level=1] [ref=e28]
+      - paragraph [ref=e29]: ReAct Agent 会自主阅读 diff、按需拉取文件与仓库搜索，输出结构化风险报告。
+      - generic [ref=e30]:
+        - generic [ref=e31]: 试试示例：
+        - 'button "Dubbo #16345" [ref=e32] [cursor=pointer]'
+        - 'button "Spring Boot #30000" [ref=e33] [cursor=pointer]'
+        - 'button "Hello World #1" [ref=e34] [cursor=pointer]'
+      - generic [ref=e35]:
+        - generic [ref=e36]: 最近评审：
+        - button "apache/dubbo#16345" [ref=e37] [cursor=pointer]
+        - button "清除记录" [ref=e38] [cursor=pointer]
