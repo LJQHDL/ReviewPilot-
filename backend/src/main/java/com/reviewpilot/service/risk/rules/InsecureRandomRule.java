@@ -23,6 +23,7 @@ import java.util.List;
  * MEDIUM 严重度：该行也可能在生成非安全标识符；期望 AI 评审环节结合上下文细化等级。
  */
 @Component
+/** 不安全随机数风险规则，负责检测安全场景中使用弱随机数的代码。 */
 public class InsecureRandomRule implements RiskRule {
 
     @Override

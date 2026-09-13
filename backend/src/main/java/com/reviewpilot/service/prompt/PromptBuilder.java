@@ -27,6 +27,7 @@ import java.util.Map;
  * {@code reviewpilot.prompt.budget.*} 配置，演示/评估时无需重新编译。
  */
 @Component
+/** 审查提示词构建器，负责组合代码、上下文和规则生成 AI 提示词。 */
 public class PromptBuilder {
 
     /** 单文件 patch 默认字符上限。 */

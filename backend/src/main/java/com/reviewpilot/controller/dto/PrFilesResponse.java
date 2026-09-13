@@ -11,6 +11,7 @@ import java.util.List;
  * @param truncated 变更文件数是否超出抓取页数上限；为 true 时 files 只是子集、评审结果不完整
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+/** PR 文件接口响应类，封装文件条目和截断状态。 */
 public record PrFilesResponse(List<FileEntry> files, boolean truncated) {
 
     /** @param patch 该文件的原始 unified diff，仅在 ?include=patch 时返回 */

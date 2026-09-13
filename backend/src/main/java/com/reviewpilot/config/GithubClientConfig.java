@@ -13,6 +13,7 @@ import reactor.netty.http.client.HttpClient;
 /** 构建调用 GitHub REST API 的 WebClient Bean，统一配置超时、API 版本头和鉴权信息。 */
 @Configuration
 @EnableConfigurationProperties(GithubProperties.class)
+/** GitHub 客户端配置类，负责创建访问 GitHub API 所需的客户端。 */
 public class GithubClientConfig {
 
     private static final int CONNECT_TIMEOUT_MILLIS = 10_000;

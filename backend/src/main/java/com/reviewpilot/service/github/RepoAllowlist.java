@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
  * 如 {@code octocat/Hello-World}、{@code octocat/*}、{@code spring-*&#47;*}。
  */
 @Component
+/** 仓库白名单校验器，负责判断目标仓库是否允许被审查。 */
 public class RepoAllowlist {
 
     private static final Logger log = LoggerFactory.getLogger(RepoAllowlist.class);

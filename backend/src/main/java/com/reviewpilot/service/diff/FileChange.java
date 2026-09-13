@@ -6,6 +6,7 @@ import java.util.List;
  * PR 中单个文件的变更记录，与 GitHub {@code GET /repos/.../pulls/{n}/files} 响应条目形状一致，
  * 并在非二进制文件时附带 {@link #patch()} 解析出的 hunks。
  */
+/** 单个文件变更数据类，保存文件路径、状态、统计信息和差异内容。 */
 public record FileChange(
         String filename,
         String status,         // "added" | "removed" | "modified" | "renamed"

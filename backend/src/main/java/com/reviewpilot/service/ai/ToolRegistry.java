@@ -11,6 +11,7 @@ import java.util.Map;
 
 /** 面向 LLM 的工具注册表：提供工具定义、按名分发调用，并把一切失败归一化为文本结果。 */
 @Component
+/** AI 工具注册表，负责维护可供模型调用的工具定义和实现。 */
 public class ToolRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(ToolRegistry.class);

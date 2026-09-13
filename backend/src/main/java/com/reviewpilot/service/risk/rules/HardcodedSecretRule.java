@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
  * 用模式匹配以便同时抓住赋值（{@code password = "..."}）和配置值两种写法。
  */
 @Component
+/** 硬编码密钥风险规则，负责检测源码中的疑似凭据和秘密。 */
 public class HardcodedSecretRule implements RiskRule {
 
     /** 疑似密钥的字段名清单。 */

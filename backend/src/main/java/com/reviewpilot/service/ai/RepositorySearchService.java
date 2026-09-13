@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 耗尽全部配额、饿死其他并发评审的 search_repo，缓存也会随模型自选的键无限增长。
  */
 @Service
+/** 仓库搜索服务，负责为 AI 审查代理提供代码搜索能力。 */
 public class RepositorySearchService {
 
     private static final long WINDOW_MILLIS = 60_000L;

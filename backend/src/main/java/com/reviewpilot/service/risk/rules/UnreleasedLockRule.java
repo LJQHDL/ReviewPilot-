@@ -22,6 +22,7 @@ import java.util.List;
  * 是最不能被无声上线的隐患之一。
  */
 @Component
+/** 锁未释放风险规则，负责检测获取锁后未可靠释放的代码。 */
 public class UnreleasedLockRule implements RiskRule {
 
     @Override

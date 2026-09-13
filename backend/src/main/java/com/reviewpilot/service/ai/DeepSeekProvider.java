@@ -24,6 +24,7 @@ import java.util.Map;
  * API Key 只从环境变量读取；日志中只允许出现 {@link DeepSeekProperties#redactedKey()}。
  */
 @Component
+/** DeepSeek 模型提供者，负责调用 DeepSeek API 完成对话和工具调用。 */
 public class DeepSeekProvider implements ModelProvider {
 
     private static final Logger log = LoggerFactory.getLogger(DeepSeekProvider.class);

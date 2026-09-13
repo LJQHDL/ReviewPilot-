@@ -5,6 +5,7 @@ import java.util.List;
 /**
  * 多轮 LLM 会话中的一条消息，兼容 OpenAI 的四种角色：system / user / assistant / tool。
  */
+/** AI 对话消息数据类，表示与模型交互的一条消息。 */
 public record Message(String role, String content, String toolCallId,
                       List<ToolCall> toolCalls) {
 

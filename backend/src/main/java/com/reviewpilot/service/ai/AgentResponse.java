@@ -5,6 +5,7 @@ import java.util.List;
 /**
  * {@link ModelProvider#chat(List, List)} 的单次返回：文本内容、工具调用列表和真实 token 用量。
  */
+/** AI 代理响应数据类，封装模型回复和工具调用请求。 */
 public record AgentResponse(String content, List<ToolCall> toolCalls,
                              int promptTokens, int completionTokens) {
 

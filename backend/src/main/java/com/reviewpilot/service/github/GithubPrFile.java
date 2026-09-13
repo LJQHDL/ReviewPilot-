@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <p>
  * 端点：{@code GET /repos/{owner}/{repo}/pulls/{number}/files}
  */
+/** GitHub PR 文件数据类，保存单个文件变更元数据。 */
 public record GithubPrFile(
         String filename,
         String status,

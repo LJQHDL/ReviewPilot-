@@ -8,6 +8,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 /** GitHub 代码搜索的 HTTP 适配器（限流与缓存策略由 RepositorySearchService 负责）。 */
 @Component
+/** GitHub 代码搜索服务，负责在仓库中搜索与审查相关的代码。 */
 public class GithubCodeSearcher {
     private final WebClient github;
     private final GithubProperties props;

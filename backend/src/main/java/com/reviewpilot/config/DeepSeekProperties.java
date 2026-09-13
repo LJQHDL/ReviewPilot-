@@ -18,6 +18,7 @@ import java.time.Duration;
  * @param temperature 采样温度，0.2 可让 JSON 输出保持稳定
  */
 @ConfigurationProperties("reviewpilot.ai.deepseek")
+/** DeepSeek 配置属性类，保存模型服务地址、密钥和模型等配置。 */
 public record DeepSeekProperties(
         String apiBase,
         String apiKey,

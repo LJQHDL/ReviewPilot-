@@ -9,6 +9,7 @@ import java.util.List;
  * <p>{@link #needsRevision()} 在 issues 非空时返回 true，使修订决策是确定性的，
  * 而非依赖 LLM 生成、每次调用都会波动的数值评分。
  */
+/** 审查批评结果类，保存批评代理发现的问题。 */
 public record CriticResult(List<String> issues) {
 
     /** 紧凑构造器：null 归一化为空列表并做防御性拷贝。 */

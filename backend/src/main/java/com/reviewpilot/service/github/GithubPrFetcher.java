@@ -22,6 +22,7 @@ import java.util.List;
  * 一次无界停顿等于泄漏一个工作线程。
  */
 @Service
+/** GitHub PR 获取服务，负责从 GitHub 拉取 Pull Request 的文件变更。 */
 public class GithubPrFetcher {
 
     private static final int FILES_PER_PAGE = 100;

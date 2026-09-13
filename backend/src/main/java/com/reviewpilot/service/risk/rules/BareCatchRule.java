@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
  * <p>MEDIUM 严重度——裸 catch 有时是刻意为之（清理路径），因此只标记不升级。
  */
 @Component
+/** 空 catch 风险规则，负责检测未处理异常的 catch 代码。 */
 public class BareCatchRule implements RiskRule {
 
     private static final Pattern BARE_CATCH = Pattern.compile(

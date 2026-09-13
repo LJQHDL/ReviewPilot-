@@ -19,6 +19,7 @@ import java.util.List;
  *                     触顶时评审结果标记为截断，而不是静默地只评审一部分
  */
 @ConfigurationProperties("reviewpilot.github")
+/** GitHub 配置属性类，保存 GitHub API 和仓库白名单等配置。 */
 public record GithubProperties(String apiBase, String token, List<String> allowedRepos,
                                Duration timeout, int maxFilePages) {
 

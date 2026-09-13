@@ -13,6 +13,7 @@ import java.util.List;
  * @param suggestions 可执行的改进建议，尽量带文件/行号
  * @param meta        提供方/模型/耗时等诊断信息，便于演示与调试
  */
+/** 代码审查结果数据类，汇总风险、建议及审查元信息。 */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ReviewResult(
         String prUrl,

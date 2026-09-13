@@ -24,6 +24,7 @@ import java.util.Map;
  * Bean 上不累积任何状态，因此单实例可并发服务多个 PR 而计数器互不串扰。
  */
 @Service
+/** AI 审查代理，负责通过模型分析代码变更并生成审查结果。 */
 public class ReviewAgent {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewAgent.class);

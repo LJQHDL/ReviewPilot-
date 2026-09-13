@@ -16,6 +16,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/pr")
+/** PR 文件接口控制器，负责提供指定 Pull Request 的文件信息。 */
 public class PrFilesController {
 
     private final PrFilesQuery query;

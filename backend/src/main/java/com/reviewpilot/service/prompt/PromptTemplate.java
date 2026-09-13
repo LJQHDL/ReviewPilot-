@@ -10,6 +10,7 @@ import com.reviewpilot.service.classifier.FileType;
  * <p>每项只有几条简短要点。要点刻意写得具体（"校验入参""警惕 N+1 查询"）
  * 而非空泛（"写好代码"），因为模型会把具体项当作可执行约束，而忽略正确的废话。
  */
+/** 提示词模板枚举，定义不同审查阶段使用的模板。 */
 public enum PromptTemplate {
 
     CONTROLLER(FileType.CONTROLLER, """

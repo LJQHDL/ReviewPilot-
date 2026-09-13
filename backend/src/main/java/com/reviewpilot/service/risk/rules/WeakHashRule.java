@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
  * 由 AI 评审环节判断该哈希是否用在安全上下文（密码存储、数字签名、证书校验）中。
  */
 @Component
+/** 弱哈希风险规则，负责检测使用不安全哈希算法的代码。 */
 public class WeakHashRule implements RiskRule {
 
     /** 匹配算法名字符串字面量与 MessageDigest.getInstance 两种写法。 */

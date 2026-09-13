@@ -20,6 +20,7 @@ import java.util.List;
  * <p>LOW 严重度——这是代码质量提醒，不是正确性缺陷。
  */
 @Component
+/** 标准输出风险规则，负责检测直接使用 System.out 输出日志的代码。 */
 public class SystemOutPrintlnRule implements RiskRule {
 
     @Override

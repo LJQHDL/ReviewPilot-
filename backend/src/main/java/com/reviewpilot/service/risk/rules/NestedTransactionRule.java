@@ -25,6 +25,7 @@ import java.util.List;
  * <p>HIGH 严重度。
  */
 @Component
+/** 嵌套事务风险规则，负责检测可能导致事务边界问题的嵌套事务。 */
 public class NestedTransactionRule implements RiskRule {
 
     @Override

@@ -34,6 +34,7 @@ import java.util.regex.Pattern;
  *   - 要求抛出类型的简单名与被捕获类型不同。
  */
 @Component
+/** 异常吞噬风险规则，负责检测悄悄忽略异常的代码。 */
 public class ExceptionSwallowingRule implements RiskRule {
 
     private static final Pattern CATCH_HEADER = Pattern.compile(
