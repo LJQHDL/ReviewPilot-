@@ -15,6 +15,7 @@ import com.reviewpilot.service.prompt.PromptBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -28,14 +29,18 @@ import static org.mockito.Mockito.when;
 
 class ReviewAgentTest {
 
+    private static final ModelEndpoint ep = new ModelEndpoint(
+            "mock", "http://localhost", "test-key", "mock-model",
+            Duration.ofSeconds(5), 256, 0.2, 1);
+
     @Test
     void concurrent_reviews_keep_their_own_tool_counts() throws Exception {
         var waiting = new java.util.concurrent.CountDownLatch(1);
         var release = new java.util.concurrent.CountDownLatch(1);
         when(toolRegistry.getDefinitions()).thenReturn(List.of());
         when(toolRegistry.execute(any(), any())).thenReturn("evidence");
-        when(modelProvider.chat(anyList(), anyList())).thenAnswer(invocation -> {
-            List<Message> messages = invocation.getArgument(0);
+        when(modelProvider.chat(any(), anyList(), anyList())).thenAnswer(invocation -> {
+            List<Message> messages = invocation.getArgument(1);
             boolean firstReview = messages.get(1).content().contains("FIRST_REVIEW");
             boolean hasEvidence = messages.stream().anyMatch(m -> "tool".equals(m.role()));
             if (firstReview && !hasEvidence) {
@@ -51,10 +56,10 @@ class ReviewAgentTest {
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var first = executor.submit(() -> reviewAgent.review(List.of(), Map.of(), List.of(),
-                    List.of(), "FIRST_REVIEW", new PrUrl("a", "b", 1), Deadline.NONE));
+                    List.of(), "FIRST_REVIEW", new PrUrl("a", "b", 1), Deadline.NONE, ep));
             assertTrue(waiting.await(5, java.util.concurrent.TimeUnit.SECONDS));
             AgentReview second = reviewAgent.review(List.of(), Map.of(), List.of(),
-                    List.of(), "SECOND_REVIEW", new PrUrl("a", "b", 2), Deadline.NONE);
+                    List.of(), "SECOND_REVIEW", new PrUrl("a", "b", 2), Deadline.NONE, ep);
             release.countDown();
             AgentReview completedFirst = first.get(5, java.util.concurrent.TimeUnit.SECONDS);
             assertEquals(2, completedFirst.reactRounds());
@@ -69,12 +74,12 @@ class ReviewAgentTest {
 
     @Test
     void context_limit_completion_returns_current_request_statistics() {
-        when(modelProvider.chat(anyList(), anyList())).thenReturn(
+        when(modelProvider.chat(any(), anyList(), anyList())).thenReturn(
                 new AgentResponse("{\"summary\":\"limited\"}", List.of(), 0, 0));
         var limited = new ReviewAgent(modelProvider, toolRegistry, promptBuilder,
                 new ReviewReplyReader(), 8, 1);
         AgentReview outcome = limited.review(List.of(), Map.of(), List.of(), List.of(),
-                "title", new PrUrl("a", "b", 1), Deadline.NONE);
+                "title", new PrUrl("a", "b", 1), Deadline.NONE, ep);
         assertEquals("limited", outcome.result().summary());
         assertEquals(1, outcome.reactRounds());
         assertEquals(0, outcome.toolCallCount());
@@ -95,7 +100,7 @@ class ReviewAgentTest {
 
     @Test
     void singleRound_noTools_directOutput() {
-        when(modelProvider.chat(anyList(), anyList()))
+        when(modelProvider.chat(any(), anyList(), anyList()))
                 .thenReturn(new AgentResponse(
                         "{\"summary\":\"ok\",\"risks\":[],\"suggestions\":[]}",
                         List.of(), 0, 0));
@@ -111,7 +116,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "add field",
-                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE, ep).result();
 
         assertNotNull(r);
         assertEquals("ok", r.summary());
@@ -120,7 +125,7 @@ class ReviewAgentTest {
     @Test
     void multiRound_withToolCalls() {
         // Round 1: LLM asks to fetch a file
-        when(modelProvider.chat(anyList(), anyList()))
+        when(modelProvider.chat(any(), anyList(), anyList()))
                 .thenReturn(new AgentResponse("",
                         List.of(new ToolCall("call_1", "fetch_file_content",
                                 Map.of("path", "Foo.java"))),
@@ -140,7 +145,7 @@ class ReviewAgentTest {
                 List.of(new RiskItem(RiskLevel.HIGH, "Foo.java", 5, "unreleased lock")),
                 List.of(),
                 "add lock",
-                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE, ep).result();
 
         assertNotNull(r);
         assertEquals("done", r.summary());
@@ -148,7 +153,7 @@ class ReviewAgentTest {
 
     @Test
     void toolExecutionFailure_continuesNormally() {
-        when(modelProvider.chat(anyList(), anyList()))
+        when(modelProvider.chat(any(), anyList(), anyList()))
                 .thenReturn(new AgentResponse("",
                         List.of(new ToolCall("call_1", "fetch_file_content",
                                 Map.of("path", "missing.txt"))),
@@ -167,7 +172,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE, ep).result();
 
         assertEquals("partial", r.summary());
     }
@@ -175,7 +180,7 @@ class ReviewAgentTest {
     @Test
     void maxRoundsExceeded_forcesCompletion() {
         // Always return tool calls — never finishes
-        when(modelProvider.chat(anyList(), anyList()))
+        when(modelProvider.chat(any(), anyList(), anyList()))
                 .thenReturn(new AgentResponse("",
                         List.of(new ToolCall("c1", "search_repo",
                                 Map.of("query", "test"))),
@@ -193,7 +198,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE, ep).result();
 
         assertNotNull(r);
     }
@@ -201,7 +206,7 @@ class ReviewAgentTest {
     @Test
     void convergenceAfterFourToolCalls_stopsGivingTools() {
         // 4 tool calls, then stop
-        when(modelProvider.chat(anyList(), anyList()))
+        when(modelProvider.chat(any(), anyList(), anyList()))
                 .thenReturn(new AgentResponse("",
                         List.of(new ToolCall("c1", "fetch_file_content", Map.of("path", "A.java"))),
                         0, 0))
@@ -228,7 +233,7 @@ class ReviewAgentTest {
                 List.of(),
                 List.of(),
                 "test",
-                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE).result();
+                PrUrl.parse("https://github.com/a/b/pull/1"), Deadline.NONE, ep).result();
 
         assertEquals("converged", r.summary());
     }

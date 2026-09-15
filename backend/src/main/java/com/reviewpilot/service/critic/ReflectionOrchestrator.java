@@ -2,6 +2,7 @@ package com.reviewpilot.service.critic;
 
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
+import com.reviewpilot.service.ai.ModelEndpoint;
 import com.reviewpilot.service.ai.ModelProvider;
 import com.reviewpilot.service.ai.ReviewReplyReader;
 import com.reviewpilot.service.prompt.CriticPromptBuilder;
@@ -52,14 +53,14 @@ public class ReflectionOrchestrator {
      * <p>{@code userPrompt} 同时充当 Critic 比对用的"被评审代码"；修订结果只有在
      * 成功解析为 JSON 后才会被采纳——从未变成 JSON 的回复绝不能顶替已经合法的评审。
      */
-    public RefinementResult refine(ReviewResult v0, List<RiskItem> ruleRisks,
+    public RefinementResult refine(ModelEndpoint ep, ReviewResult v0, List<RiskItem> ruleRisks,
                                     String systemPrompt, String userPrompt) {
         if (!enabled) {
             return new RefinementResult(null, List.of());
         }
 
         // 第 1 步：运行 Critic（解析失败时内部自动重试一次）
-        CriticResult critic = criticAgent.inspect(v0, ruleRisks, userPrompt);
+        CriticResult critic = criticAgent.inspect(ep, v0, ruleRisks, userPrompt);
 
         if (!critic.needsRevision()) {
             log.debug("Critic found no issues — review passes on first attempt");
@@ -72,13 +73,13 @@ public class ReflectionOrchestrator {
         // 第 2 步：把 Critic 反馈注入修订版 system prompt，重出一版评审
         String revisionSystem = prompts.revisionSystemPrompt(systemPrompt, critic.issues());
 
-        String revisionRaw = modelProvider.complete(revisionSystem, userPrompt);
+        String revisionRaw = modelProvider.complete(ep, revisionSystem, userPrompt);
         if (revisionRaw == null || revisionRaw.isBlank()) {
             return new RefinementResult(null, critic.issues());
         }
         // 修订回复解析失败时保留原评审，只回传 critic 问题清单
         return replyReader.readOrNull(revisionRaw, feedback ->
-                        modelProvider.complete(revisionSystem + "\n\n" + feedback, userPrompt))
+                        modelProvider.complete(ep, revisionSystem + "\n\n" + feedback, userPrompt))
                 .map(revision -> new RefinementResult(revision, critic.issues()))
                 .orElseGet(() -> {
                     log.warn("Revision reply never parsed; serving the unrevised review");

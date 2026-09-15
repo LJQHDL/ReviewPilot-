@@ -11,6 +11,7 @@ import com.reviewpilot.service.risk.RiskMerger;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.service.ai.AgentResponse;
 import com.reviewpilot.service.ai.Message;
+import com.reviewpilot.service.ai.ModelEndpoint;
 import com.reviewpilot.service.ai.ModelProvider;
 import com.reviewpilot.service.ai.ReviewAgent;
 import com.reviewpilot.service.ai.Tool;
@@ -62,11 +63,11 @@ class ReviewPipelineIntegrationTest {
         FileContentFetcher contentFetcher = new FileContentFetcher(gh, new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0));
         PromptBuilder promptBuilder = new PromptBuilder();
         ModelProvider modelStub = new ModelProvider() {
-            public String name() { return "test"; }
-            public String complete(String s, String u) {
+            public String name() { return "openai-compatible"; }
+            public String complete(ModelEndpoint ep, String s, String u) {
                 return "{\"summary\":\"ok\",\"risks\":[],\"suggestions\":[]}";
             }
-            public AgentResponse chat(List<Message> m, List<Tool> t) {
+            public AgentResponse chat(ModelEndpoint ep, List<Message> m, List<Tool> t) {
                 return new AgentResponse(
                     "{\"summary\":\"ok\",\"risks\":[],\"suggestions\":[]}",
                     List.of(), 0, 0);
@@ -78,8 +79,11 @@ class ReviewPipelineIntegrationTest {
         ReviewAgent reviewAgent = new ReviewAgent(modelStub, new ToolRegistry(new RepositorySearchService(new GithubCodeSearcher(gh, new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 25, 256), contentFetcher),
                 promptBuilder, new ReviewReplyReader(), 8, 64000);
 
+        // 端点来源桩：name 会进 meta.provider，model 进 meta.model。
+        ModelEndpoint stubEndpoint = new ModelEndpoint("test", base, "sk-test", "test-model",
+                java.time.Duration.ofSeconds(5), 256, 0.2, 1);
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector, contextLoader,
-                new RiskFileContextLoader(contentFetcher, false), promptBuilder, modelStub, reviewAgent, orchestrator, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
+                new RiskFileContextLoader(contentFetcher, false), promptBuilder, () -> stubEndpoint, reviewAgent, orchestrator, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
     }
 
     @AfterEach

@@ -38,16 +38,30 @@ reviewpilot:
     # reported as truncated instead of silently partial.
     max-file-pages: 3
   ai:
-    provider: deepseek
-    deepseek:
-      api-base: https://api.deepseek.com
-      api-key: ${DEEPSEEK_API_KEY:}
-      model: deepseek-chat
-      timeout: 60s
-      max-tokens: 4096
-      temperature: 0.2
-      # Transient network errors only; HTTP 4xx/5xx are never retried.
-      max-retries: 1
+    # 生效端点名。省略时若只声明一个端点则自动生效；声明多个则必须显式指定，否则启动失败。
+    active: deepseek
+    # 多套具名端点。全部走 OpenAI 兼容协议（/v1/chat/completions），换厂商=加一段+改 active，零代码。
+    # 密钥只从环境变量注入（${ENV:} 占位），切勿把明文 key 提交进本文件。
+    # 各家 timeout/max-tokens/temperature/max-retries 可省略，省略则用默认（60s/4096/0.2/1）。
+    endpoints:
+      deepseek:
+        api-base: https://api.deepseek.com
+        api-key: ${DEEPSEEK_API_KEY:}
+        model: deepseek-chat
+        timeout: 60s
+        max-tokens: 4096
+        temperature: 0.2
+        # Transient network errors only; HTTP 4xx/5xx are never retried.
+        max-retries: 1
+      # 示例：再加一家 OpenAI 兼容厂商（改 active: openai 即切换）。密钥用各自环境变量。
+      # openai:
+      #   api-base: https://api.openai.com
+      #   api-key: ${OPENAI_API_KEY:}
+      #   model: gpt-4o-mini
+      # kimi:
+      #   api-base: https://api.moonshot.cn
+      #   api-key: ${KIMI_API_KEY:}
+      #   model: moonshot-v1-8k
   # These keys must sit directly under `reviewpilot` — the @Value expressions read
   # `reviewpilot.agent.*`. Nesting them under `ai:` makes them silently inert, which
   # is exactly how reflection.enabled=false stopped working once.

@@ -63,7 +63,8 @@ public class ReviewAgent {
                               List<ContextSlice> contexts,
                               String prTitle,
                               PrUrl pr,
-                              Deadline deadline) {
+                              Deadline deadline,
+                              ModelEndpoint ep) {
         // 初始消息：system 定义评审角色与工具用法，user 携带 diff/规则结果/工具清单
         List<Message> messages = new ArrayList<>();
         messages.add(Message.system(promptBuilder.reactSystemPrompt()));
@@ -83,7 +84,7 @@ public class ReviewAgent {
                 log.warn("Review budget exhausted after {} rounds / {} tool calls",
                         loop.round - 1, loop.toolCalls);
                 messages.add(Message.user("审查时间预算已用尽，请立即输出审查结果 JSON，不要调用工具。"));
-                return finish(forceComplete(messages, loop), loop);
+                return finish(forceComplete(ep, messages, loop), loop);
             }
 
             // 字符预算超 80%：先压缩早期工具结果
@@ -93,14 +94,14 @@ public class ReviewAgent {
             // 压缩后仍超限：强制收尾
             if (estimateChars(messages) > maxTotalChars) {
                 messages.add(Message.user("上下文已满，请立即输出审查结果 JSON，不要调用工具。"));
-                return finish(forceComplete(messages, loop), loop);
+                return finish(forceComplete(ep, messages, loop), loop);
             }
 
             // 收敛策略：工具调用预算用完后不再下发工具定义，逼模型直接给结论
             boolean giveTools = loop.toolCalls < TOOL_CALL_LIMIT;
             List<Tool> tools = giveTools ? toolRegistry.getDefinitions() : List.of();
 
-            AgentResponse resp = chat(messages, tools, loop);
+            AgentResponse resp = chat(ep, messages, tools, loop);
             log.debug("ReAct round {}: toolCalls={} contentLen={}",
                     loop.round, resp.hasToolCalls(), resp.content().length());
 
@@ -125,32 +126,32 @@ public class ReviewAgent {
             }
 
             // 无工具调用 → 模型已给出结论，解析为 ReviewResult
-            return finish(parseReply(resp.content(), messages, loop), loop);
+            return finish(parseReply(ep, resp.content(), messages, loop), loop);
         }
 
         // 达到最大轮数仍未收敛——强制收尾（不带工具再问一次）
         messages.add(Message.user("已达到最大轮次 " + maxRounds + "。请立即输出审查结果 JSON。"));
-        return finish(forceComplete(messages, loop), loop);
+        return finish(forceComplete(ep, messages, loop), loop);
     }
 
     /** 以"禁用工具"的方式再问一次，强迫模型输出最终结果。 */
-    private ReviewResult forceComplete(List<Message> messages, Loop loop) {
-        AgentResponse resp = chat(messages, List.of(), loop);
-        return parseReply(resp.content(), messages, loop);
+    private ReviewResult forceComplete(ModelEndpoint ep, List<Message> messages, Loop loop) {
+        AgentResponse resp = chat(ep, messages, List.of(), loop);
+        return parseReply(ep, resp.content(), messages, loop);
     }
 
     /** 解析回复；失败时把错误反馈追加进对话并让模型重写一次（由 ReplyReader 驱动）。 */
-    private ReviewResult parseReply(String raw, List<Message> messages, Loop loop) {
+    private ReviewResult parseReply(ModelEndpoint ep, String raw, List<Message> messages, Loop loop) {
         return replyReader.read(raw, feedback -> {
             messages.add(Message.assistant(raw, List.of()));
             messages.add(Message.user(feedback));
-            return chat(messages, List.of(), loop).content();
+            return chat(ep, messages, List.of(), loop).content();
         });
     }
 
     /** 统一出口：每次 chat 的真实 token 用量累加进本次调用的 Loop。 */
-    private AgentResponse chat(List<Message> messages, List<Tool> tools, Loop loop) {
-        AgentResponse resp = modelProvider.chat(messages, tools);
+    private AgentResponse chat(ModelEndpoint ep, List<Message> messages, List<Tool> tools, Loop loop) {
+        AgentResponse resp = modelProvider.chat(ep, messages, tools);
         loop.promptTokens += resp.promptTokens();
         loop.completionTokens += resp.completionTokens();
         return resp;

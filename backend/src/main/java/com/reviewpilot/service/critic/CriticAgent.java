@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
 import com.reviewpilot.service.ai.JsonReplyCleaner;
+import com.reviewpilot.service.ai.ModelEndpoint;
 import com.reviewpilot.service.ai.ModelProvider;
 import com.reviewpilot.service.prompt.CriticPromptBuilder;
 import org.slf4j.Logger;
@@ -30,13 +31,13 @@ public class CriticAgent {
     }
 
     /** 检查一份评审结果：codeUnderReview 是被评审的证据文本，供 Critic 比对防幻觉。 */
-    public CriticResult inspect(ReviewResult review, List<RiskItem> ruleRisks, String codeUnderReview) {
-        return runCritic(prompts.systemPrompt(), prompts.build(ruleRisks, review, codeUnderReview));
+    public CriticResult inspect(ModelEndpoint ep, ReviewResult review, List<RiskItem> ruleRisks, String codeUnderReview) {
+        return runCritic(ep, prompts.systemPrompt(), prompts.build(ruleRisks, review, codeUnderReview));
     }
 
     /** 运行 Critic，JSON 回复格式错误时最多重试一次。 */
-    private CriticResult runCritic(String systemPrompt, String userPrompt) {
-        String raw = modelProvider.complete(systemPrompt, userPrompt);
+    private CriticResult runCritic(ModelEndpoint ep, String systemPrompt, String userPrompt) {
+        String raw = modelProvider.complete(ep, systemPrompt, userPrompt);
         try {
             return parseCriticReply(raw);
         } catch (JsonProcessingException e) {
@@ -46,7 +47,7 @@ public class CriticAgent {
             String retryUser = userPrompt
                     + "\n\nYour previous response was not valid JSON. Parser error: "
                     + e.getOriginalMessage() + ". Respond with strictly valid JSON.";
-            String raw2 = modelProvider.complete(systemPrompt, retryUser);
+            String raw2 = modelProvider.complete(ep, systemPrompt, retryUser);
             try {
                 return parseCriticReply(raw2);
             } catch (JsonProcessingException e2) {

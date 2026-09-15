@@ -4,7 +4,8 @@ import com.reviewpilot.model.Deadline;
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
-import com.reviewpilot.service.ai.ModelProvider;
+import com.reviewpilot.service.ai.ModelEndpoint;
+import com.reviewpilot.service.ai.ModelEndpointResolver;
 import com.reviewpilot.service.ai.AgentReview;
 import com.reviewpilot.service.risk.RiskMerger;
 import com.reviewpilot.service.ai.ReviewAgent;
@@ -42,7 +43,7 @@ public class ReviewPipeline {
     private final ContextLoader contextLoader;
     private final RiskFileContextLoader contentFetcher;
     private final PromptBuilder promptBuilder;
-    private final ModelProvider modelProvider;
+    private final ModelEndpointResolver endpointResolver;
     private final ReviewAgent reviewAgent;
     private final ReflectionOrchestrator orchestrator;
     private final RiskMerger riskMerger;
@@ -56,7 +57,7 @@ public class ReviewPipeline {
                           ContextLoader contextLoader,
                           RiskFileContextLoader contentFetcher,
                           PromptBuilder promptBuilder,
-                          ModelProvider modelProvider,
+                          ModelEndpointResolver endpointResolver,
                           ReviewAgent reviewAgent,
                           ReflectionOrchestrator orchestrator,
                           RiskMerger riskMerger,
@@ -69,7 +70,7 @@ public class ReviewPipeline {
         this.contextLoader = contextLoader;
         this.contentFetcher = contentFetcher;
         this.promptBuilder = promptBuilder;
-        this.modelProvider = modelProvider;
+        this.endpointResolver = endpointResolver;
         this.reviewAgent = reviewAgent;
         this.orchestrator = orchestrator;
         this.riskMerger = riskMerger;
@@ -85,6 +86,8 @@ public class ReviewPipeline {
         Deadline deadline = Deadline.of(requestBudgetMillis);
         PrUrl pr = PrUrl.parse(prUrlRaw);
         allowlist.requireAllowed(pr);
+        // 一次评审内端点恒定：在此解析一次，向下透传给 ReAct 与反思，Meta 也用它（F4/F5/F10）
+        ModelEndpoint ep = endpointResolver.active();
 
         FetchedFiles fetched = fetcher.fetchFiles(pr);
         List<FileChange> files = fetched.files();
@@ -98,7 +101,7 @@ public class ReviewPipeline {
                     "(no changed files in this PR)",
                     List.of(),
                     List.of(),
-                    new ReviewResult.Meta(modelProvider.name(), modelProvider.modelName(), 0,
+                    new ReviewResult.Meta(ep.name(), ep.model(), 0,
                             System.currentTimeMillis() - started)
             );
         }
@@ -130,7 +133,7 @@ public class ReviewPipeline {
         long llmStart = System.currentTimeMillis();
         String prTitle = fetcher.fetchPrTitle(pr);
         AgentReview agentReview = reviewAgent.review(files, classifications, ruleRisks,
-                contexts, prTitle, pr, deadline);
+                contexts, prTitle, pr, deadline, ep);
         ReviewResult parsed = agentReview.result();
         long llmMs = System.currentTimeMillis() - llmStart;
         String systemPrompt = promptBuilder.systemPrompt();
@@ -142,7 +145,7 @@ public class ReviewPipeline {
         // 不再启动客户端已经不会等待的模型调用。
         ReflectionOrchestrator.RefinementResult refinement = deadline.expired()
                 ? new ReflectionOrchestrator.RefinementResult(null, List.of())
-                : orchestrator.refine(parsed, ruleRisks, systemPrompt, userPrompt);
+                : orchestrator.refine(ep, parsed, ruleRisks, systemPrompt, userPrompt);
         if (refinement.needsRevision()) {
             parsed = refinement.revision();
             agentRounds = 2;
@@ -167,7 +170,7 @@ public class ReviewPipeline {
                 mergedRisks,
                 parsed.suggestions(),
                 parsed.keyFindings(),
-                new ReviewResult.Meta(modelProvider.name(), modelProvider.modelName(), files.size(),
+                new ReviewResult.Meta(ep.name(), ep.model(), files.size(),
                         totalMs, agentRounds,
                         agentReview.reactRounds(), agentReview.toolCallCount(),
                         agentReview.promptTokens(), agentReview.completionTokens(),

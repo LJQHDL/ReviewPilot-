@@ -10,6 +10,8 @@ import com.reviewpilot.service.context.RiskFileContextLoader;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
 import com.reviewpilot.model.RiskLevel;
+import com.reviewpilot.service.ai.ModelEndpoint;
+import com.reviewpilot.service.ai.ModelEndpointResolver;
 import com.reviewpilot.service.ai.ModelProvider;
 import com.reviewpilot.service.ai.AgentReview;
 import com.reviewpilot.service.risk.RiskMerger;
@@ -58,7 +60,7 @@ class ReviewPipelineFlowTest {
         when(promptBuilder.systemPrompt()).thenReturn("system");
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("user");
         ModelProvider revisionModel = mock(ModelProvider.class);
-        when(revisionModel.complete(any(), any())).thenReturn(
+        when(revisionModel.complete(any(), any(), any())).thenReturn(
                 "{\"issues\":[\"fix\"]}",
                 "{\"summary\":\"fixed\",\"keyFindings\":[\"Keep this finding\"],\"risks\":[],\"suggestions\":[]}");
         var reflection = new ReflectionOrchestrator(revisionModel,
@@ -66,7 +68,7 @@ class ReviewPipelineFlowTest {
                         new CriticPromptBuilder(), new com.fasterxml.jackson.databind.ObjectMapper()),
                 new CriticPromptBuilder(), new ReviewReplyReader(), true);
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector, contextLoader,
-                contentFetcher, promptBuilder, modelProvider, reviewAgent, reflection, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
+                contentFetcher, promptBuilder, resolver, reviewAgent, reflection, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
         assertEquals(List.of("Keep this finding"),
                 pipeline.review("https://github.com/o/r/pull/1").keyFindings());
     }
@@ -77,10 +79,15 @@ class ReviewPipelineFlowTest {
     private ContextLoader contextLoader;
     private RiskFileContextLoader contentFetcher;
     private PromptBuilder promptBuilder;
-    private ModelProvider modelProvider;
+    private ModelEndpointResolver resolver;
     private ReviewAgent reviewAgent;
     private ReflectionOrchestrator orchestrator;
     private ReviewPipeline pipeline;
+
+    /** 生效端点桩：name 即 meta.provider 的来源。 */
+    private static final ModelEndpoint EP = new ModelEndpoint(
+            "deepseek", "https://api.deepseek.com", "sk-x", "deepseek-chat",
+            java.time.Duration.ofSeconds(5), 256, 0.2, 1);
 
     @BeforeEach
     void setup() {
@@ -90,21 +97,21 @@ class ReviewPipelineFlowTest {
         contextLoader = mock(ContextLoader.class);
         contentFetcher = mock(RiskFileContextLoader.class);
         promptBuilder = mock(PromptBuilder.class);
-        modelProvider = mock(ModelProvider.class);
+        resolver = mock(ModelEndpointResolver.class);
+        when(resolver.active()).thenReturn(EP);
         reviewAgent = mock(ReviewAgent.class);
         orchestrator = mock(ReflectionOrchestrator.class);
-        when(modelProvider.name()).thenReturn("deepseek");
         when(classifier.classify(any())).thenReturn(FileType.OTHER);
         when(riskDetector.scan(any())).thenReturn(List.of());
         when(contextLoader.load(any(), any())).thenReturn(List.of());
         when(contentFetcher.fetchForRiskyFiles(any(), any())).thenReturn(Map.of());
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("", "stub", List.of(), List.of(),
                         new ReviewResult.Meta("deepseek", null, 0, 0)), 1, 0));
-        when(orchestrator.refine(any(), any(), any(), any()))
+        when(orchestrator.refine(any(), any(), any(), any(), any()))
                 .thenReturn(new ReflectionOrchestrator.RefinementResult(null, List.of()));
         pipeline = new ReviewPipeline(fetcher, classifier, riskDetector,
-                contextLoader, contentFetcher, promptBuilder, modelProvider,
+                contextLoader, contentFetcher, promptBuilder, resolver,
                 reviewAgent, orchestrator, new RiskMerger(), new com.reviewpilot.service.github.RepoAllowlist(new com.reviewpilot.config.GithubProperties("https://api.github.com", "", java.util.List.of(), null, 0)), 45000, 5);
     }
 
@@ -117,7 +124,7 @@ class ReviewPipelineFlowTest {
         when(promptBuilder.build(eq(List.of(fc)), any(), any(), any(), any(), any())).thenReturn("USER-PROMPT");
 
         String url = "https://github.com/owner/repo/pull/12";
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult(url, "refactor Foo", List.of(), List.of(),
                         new ReviewResult.Meta("deepseek", null, 1, 0)), 1, 0));
 
@@ -141,7 +148,7 @@ class ReviewPipelineFlowTest {
         order.verify(classifier).classify(fc);
         order.verify(riskDetector).scan(eq(List.of(fc)));
         order.verify(contextLoader).load(eq(List.of(fc)), eq(List.of()));
-        order.verify(reviewAgent).review(any(), any(), any(), any(), any(), any(), any());
+        order.verify(reviewAgent).review(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -153,8 +160,6 @@ class ReviewPipelineFlowTest {
         when(classifier.classify(b)).thenReturn(FileType.SERVICE);
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        when(modelProvider.complete(any(), any())).thenReturn(
-                "{\"summary\":\"\",\"risks\":[],\"suggestions\":[]}");
 
         pipeline.review("https://github.com/o/r/pull/1");
 
@@ -183,7 +188,7 @@ class ReviewPipelineFlowTest {
         when(contextLoader.load(eq(List.of(fc)), eq(List.of(ruleRisk)))).thenReturn(List.of(slice));
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("https://github.com/o/r/pull/1", "ok",
                         List.of(new RiskItem(RiskLevel.MEDIUM, "Foo.java", 42, "ai finding")),
                         List.of(),
@@ -221,7 +226,7 @@ class ReviewPipelineFlowTest {
         when(riskDetector.scan(any())).thenReturn(List.of(ruleRisk));
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
         when(promptBuilder.systemPrompt()).thenReturn("S");
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("", "ok", List.of(
                         new RiskItem(RiskLevel.MEDIUM, "Foo.java", 12, "lock without unlock")),
                         List.of(), null), 1, 0));
@@ -242,10 +247,10 @@ class ReviewPipelineFlowTest {
         assertEquals(0, r.meta().filesAnalyzed());
         assertEquals("deepseek", r.meta().provider());
 
-        // No prompt construction, no LLM call — saves tokens and avoids junk output.
+        // No prompt construction, no agent run — saves tokens and avoids junk output.
         verify(promptBuilder, never()).build(any(), any(), any(), any(), any(), any());
         verify(promptBuilder, never()).systemPrompt();
-        verify(modelProvider, never()).complete(any(), any());
+        verify(reviewAgent, never()).review(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -256,7 +261,7 @@ class ReviewPipelineFlowTest {
         // PrUrl.parse() should reject the URL before we hit GitHub or the LLM.
         verifyNoInteractions(fetcher);
         verifyNoInteractions(promptBuilder);
-        verifyNoInteractions(modelProvider);
+        verifyNoInteractions(reviewAgent);
     }
 
     @Test
@@ -270,8 +275,8 @@ class ReviewPipelineFlowTest {
                 () -> pipeline.review("https://github.com/x/y/pull/1"));
 
         // Still no LLM traffic when GitHub fetch failed — the controller maps
-        // this to 404 and the user retries; we must not burn a DeepSeek call.
-        verifyNoInteractions(modelProvider);
+        // this to 404 and the user retries; we must not burn a model call.
+        verifyNoInteractions(reviewAgent);
     }
 
     @Test
@@ -280,7 +285,7 @@ class ReviewPipelineFlowTest {
         when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(fc)));
         when(promptBuilder.systemPrompt()).thenReturn("S");
         when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
-        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any()))
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AgentReview(new ReviewResult("https://github.com/owner/repo/pull/1", "ok",
                         List.of(), List.of(),
                         new ReviewResult.Meta("deepseek", null, 1, 0)), 1, 0));

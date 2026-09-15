@@ -2,17 +2,20 @@ package com.reviewpilot.service.critic;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reviewpilot.model.ReviewResult;
+import com.reviewpilot.service.ai.ModelEndpoint;
 import com.reviewpilot.service.ai.ModelProvider;
 import com.reviewpilot.service.ai.ReviewReplyReader;
 import com.reviewpilot.service.prompt.CriticPromptBuilder;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -31,15 +34,19 @@ import static org.mockito.Mockito.when;
  */
 class ReflectionOrchestratorEvidenceTest {
 
+    private static final ModelEndpoint ep = new ModelEndpoint(
+            "mock", "http://localhost", "test-key", "mock-model",
+            Duration.ofSeconds(5), 256, 0.2, 1);
+
     private ModelProvider provider;
     private ReflectionOrchestrator orchestrator;
 
     private void setUpReturning(String... replies) {
         provider = mock(ModelProvider.class);
         if (replies.length == 1) {
-            when(provider.complete(anyString(), anyString())).thenReturn(replies[0]);
+            when(provider.complete(any(), anyString(), anyString())).thenReturn(replies[0]);
         } else {
-            when(provider.complete(anyString(), anyString()))
+            when(provider.complete(any(), anyString(), anyString()))
                     .thenReturn(replies[0], java.util.Arrays.copyOfRange(replies, 1, replies.length));
         }
         CriticPromptBuilder prompts = new CriticPromptBuilder();
@@ -54,10 +61,10 @@ class ReflectionOrchestratorEvidenceTest {
         ReviewResult v0 = new ReviewResult("u", "original", List.of(), List.of(),
                 new ReviewResult.Meta("p", "m", 1, 1));
 
-        orchestrator.refine(v0, List.of(), "system", "DIFF-BODY if (user == null) return;");
+        orchestrator.refine(ep, v0, List.of(), "system", "DIFF-BODY if (user == null) return;");
 
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
-        verify(provider, atLeastOnce()).complete(anyString(), user.capture());
+        verify(provider, atLeastOnce()).complete(any(), anyString(), user.capture());
         assertTrue(user.getAllValues().get(0).contains("DIFF-BODY"),
                 "the first call is the critic, and it must carry the code under review");
     }
@@ -70,7 +77,7 @@ class ReflectionOrchestratorEvidenceTest {
                 new ReviewResult.Meta("p", "m", 1, 1));
 
         ReflectionOrchestrator.RefinementResult result =
-                orchestrator.refine(v0, List.of(), "system", "DIFF");
+                orchestrator.refine(ep, v0, List.of(), "system", "DIFF");
 
         assertFalse(result.needsRevision(), "a reply that never became JSON is not a revision");
         assertEquals(1, result.criticIssues().size(), "the findings are still reported");

@@ -6,16 +6,19 @@ import com.reviewpilot.service.prompt.CriticPromptBuilder;
 import com.reviewpilot.model.ReviewResult;
 import com.reviewpilot.model.RiskItem;
 import com.reviewpilot.model.RiskLevel;
+import com.reviewpilot.service.ai.ModelEndpoint;
 import com.reviewpilot.service.ai.ModelProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -24,13 +27,17 @@ import static org.mockito.Mockito.when;
 
 class ReflectionOrchestratorTest {
 
+    private static final ModelEndpoint ep = new ModelEndpoint(
+            "mock", "http://localhost", "test-key", "mock-model",
+            Duration.ofSeconds(5), 256, 0.2, 1);
+
     @Test
     void blank_critic_reply_is_retried_instead_of_crashing_review() {
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("   ").thenReturn("{\"issues\":[]}");
-        var result = orchestrator.refine(sampleReview(), List.of(), "system", "user");
+        var result = orchestrator.refine(ep, sampleReview(), List.of(), "system", "user");
         assertFalse(result.needsRevision());
-        verify(modelProvider, times(2)).complete(anyString(), anyString());
+        verify(modelProvider, times(2)).complete(any(), anyString(), anyString());
     }
 
     private ModelProvider modelProvider;
@@ -50,7 +57,7 @@ class ReflectionOrchestratorTest {
                 new CriticAgent(modelProvider, new CriticPromptBuilder(), new com.fasterxml.jackson.databind.ObjectMapper()),
                 new CriticPromptBuilder(), new ReviewReplyReader(), false);
 
-        var result = disabled.refine(
+        var result = disabled.refine(ep, 
                 sampleReview(),
                 List.of(),
                 "system prompt",
@@ -58,15 +65,15 @@ class ReflectionOrchestratorTest {
 
         assertFalse(result.needsRevision());
         assertEquals(List.of(), result.criticIssues());
-        verify(modelProvider, times(0)).complete(anyString(), anyString());
+        verify(modelProvider, times(0)).complete(any(), anyString(), anyString());
     }
 
     @Test
     void criticFindsNoIssues_noRevision() {
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("{\"issues\":[]}");
 
-        var result = orchestrator.refine(
+        var result = orchestrator.refine(ep, 
                 sampleReview(),
                 List.of(),
                 "system prompt",
@@ -74,12 +81,12 @@ class ReflectionOrchestratorTest {
 
         assertFalse(result.needsRevision());
         assertEquals(List.of(), result.criticIssues());
-        verify(modelProvider, times(1)).complete(anyString(), anyString());
+        verify(modelProvider, times(1)).complete(any(), anyString(), anyString());
     }
 
     @Test
     void criticFindsIssues_triggersRevision() {
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("{\"issues\":[\"[MISSING] rule #1 not in AI output\"]}")
                 .thenReturn("{\"summary\":\"fixed\",\"risks\":[],\"suggestions\":[]}");
 
@@ -87,25 +94,25 @@ class ReflectionOrchestratorTest {
         List<RiskItem> rules = List.of(
                 new RiskItem(RiskLevel.HIGH, "Foo.java", 5, "unreleased lock"));
 
-        var result = orchestrator.refine(v0, rules, "system", "user");
+        var result = orchestrator.refine(ep, v0, rules, "system", "user");
 
         assertTrue(result.needsRevision());
         assertEquals(1, result.criticIssues().size());
         assertTrue(result.criticIssues().get(0).contains("MISSING"));
         assertNotNull(result.revision());
         assertTrue(result.revision().summary().contains("fixed"));
-        verify(modelProvider, times(2)).complete(anyString(), anyString());
+        verify(modelProvider, times(2)).complete(any(), anyString(), anyString());
     }
 
     @Test
     void criticFindsMultipleIssues_allListed() {
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("{\"issues\":[" +
                         "\"[MISSING] rule #1 not in AI output\"," +
                         "\"[SEVERITY] risk #2 should be HIGH\"]}")
                 .thenReturn("{\"summary\":\"fixed\",\"risks\":[],\"suggestions\":[]}");
 
-        var result = orchestrator.refine(
+        var result = orchestrator.refine(ep, 
                 sampleReview(),
                 List.of(new RiskItem(RiskLevel.HIGH, "Bar.java", 10, "bare catch")),
                 "system", "user");
@@ -118,42 +125,42 @@ class ReflectionOrchestratorTest {
     void criticParseFails_retrySucceeds() {
         // First call returns invalid JSON → parse fails → retry with error feedback.
         // Retry returns valid JSON with empty issues → no revision triggered.
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("not valid json {{")
                 .thenReturn("{\"issues\":[]}");
 
         List<RiskItem> rules = List.of(
                 new RiskItem(RiskLevel.HIGH, "Foo.java", 1, "bare catch"));
-        var result = orchestrator.refine(sampleReview(), rules, "system", "user");
+        var result = orchestrator.refine(ep, sampleReview(), rules, "system", "user");
 
         assertFalse(result.needsRevision());
         assertEquals(List.of(), result.criticIssues());
-        verify(modelProvider, times(2)).complete(anyString(), anyString());
+        verify(modelProvider, times(2)).complete(any(), anyString(), anyString());
     }
 
     @Test
     void criticParseRetryAlsoFails_returnsEmpty() {
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("garbage {{")
                 .thenReturn("still garbage");
 
-        var result = orchestrator.refine(
+        var result = orchestrator.refine(ep, 
                 sampleReview(),
                 List.of(),
                 "system", "user");
 
         assertFalse(result.needsRevision());
         assertEquals(List.of(), result.criticIssues());
-        verify(modelProvider, times(2)).complete(anyString(), anyString());
+        verify(modelProvider, times(2)).complete(any(), anyString(), anyString());
     }
 
     @Test
     void emptyIssuesArray_noRevision() {
         // Critic returns issues array with empty strings — filtered out
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("{\"issues\":[\"\", \"  \"]}");
 
-        var result = orchestrator.refine(
+        var result = orchestrator.refine(ep, 
                 sampleReview(),
                 List.of(),
                 "system", "user");
@@ -163,10 +170,10 @@ class ReflectionOrchestratorTest {
 
     @Test
     void nullRuleRisks_handled() {
-        when(modelProvider.complete(anyString(), anyString()))
+        when(modelProvider.complete(any(), anyString(), anyString()))
                 .thenReturn("{\"issues\":[]}");
 
-        var result = orchestrator.refine(
+        var result = orchestrator.refine(ep, 
                 sampleReview(),
                 null,
                 "system", "user");

@@ -26,6 +26,9 @@ import static org.mockito.Mockito.when;
 class ReviewAgentDeadlineTest {
 
     private static final String JSON = "{\"summary\":\"done\",\"risks\":[],\"suggestions\":[]}";
+    private static final ModelEndpoint ep = new ModelEndpoint(
+            "mock", "http://localhost", "test-key", "mock-model",
+            java.time.Duration.ofSeconds(5), 256, 0.2, 1);
 
     @Test
     void an_expired_budget_answers_immediately_without_calling_tools() {
@@ -35,13 +38,13 @@ class ReviewAgentDeadlineTest {
         ReviewAgent agent = new ReviewAgent(modelProvider, toolRegistry, promptBuilder,
                 new ReviewReplyReader(), 8, 64000);
         when(toolRegistry.getDefinitions()).thenReturn(List.of());
-        when(modelProvider.chat(anyList(), anyList()))
+        when(modelProvider.chat(any(), anyList(), anyList()))
                 .thenReturn(new AgentResponse(JSON, List.of(), 11, 7));
 
         Deadline expired = new Deadline(System.currentTimeMillis() - 1);
         AgentReview review = agent.review(
                 List.of(), Map.of(), List.of(), List.of(), "title",
-                new PrUrl("owner", "repo", 1), expired);
+                new PrUrl("owner", "repo", 1), expired, ep);
 
         assertEquals("done", review.result().summary());
         assertEquals(1, review.reactRounds());
@@ -59,14 +62,14 @@ class ReviewAgentDeadlineTest {
         when(toolRegistry.getDefinitions()).thenReturn(List.of());
         when(toolRegistry.execute(any(), any())).thenReturn("File: x\n```\ny\n```");
         // round 1 asks for a tool, round 2 answers
-        when(modelProvider.chat(anyList(), anyList()))
+        when(modelProvider.chat(any(), anyList(), anyList()))
                 .thenReturn(new AgentResponse("", List.of(
                         new ToolCall("c1", "fetch_file_content", Map.of("path", "a/A.java"))), 100, 5))
                 .thenReturn(new AgentResponse(JSON, List.of(), 200, 25));
 
         AgentReview review = agent.review(
                 List.of(), Map.of(), List.of(), List.of(), "title",
-                new PrUrl("owner", "repo", 1), Deadline.NONE);
+                new PrUrl("owner", "repo", 1), Deadline.NONE, ep);
 
         assertEquals(2, review.reactRounds());
         assertEquals(1, review.toolCallCount());
