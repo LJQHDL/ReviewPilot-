@@ -104,7 +104,7 @@ class ReviewControllerErrorTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(new ReviewController.ReviewRequest("https://github.com/o/r/pull/1"))))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("Model credentials missing"));
+                .andExpect(jsonPath("$.error").value("AI service authentication failed"));
     }
 
     @Test
@@ -115,6 +115,6 @@ class ReviewControllerErrorTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(new ReviewController.ReviewRequest("https://github.com/o/r/pull/1"))))
                 .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.error").value("upstream 503"));
+                .andExpect(jsonPath("$.error").value("AI service request failed"));
     }
 }

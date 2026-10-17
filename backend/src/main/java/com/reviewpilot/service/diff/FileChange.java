@@ -16,4 +16,8 @@ public record FileChange(
         String patch,          // 原始 unified diff（二进制或无改动时为 null）
         List<DiffHunk> hunks   // 二进制或 patch 为 null 时为空
 ) {
+    /** 固定解析结果，避免外部修改列表影响后续风险检测。 */
+    public FileChange {
+        hunks = List.copyOf(hunks);
+    }
 }

@@ -56,11 +56,11 @@ public class ToolRegistry {
             return switch (call.name()) {
                 case "fetch_file_content" -> fetchFile(pr, call.arguments());
                 case "search_repo" -> searchService.search(pr, (String) call.arguments().get("query"));
-                default -> "Unknown tool: " + call.name();
+                default -> "Unknown tool";
             };
         } catch (RuntimeException e) {
-            log.warn("Tool {} failed: {}", call.name(), e.toString());
-            return "Tool execution failed: " + e.getMessage();
+            log.warn("Tool execution failed: type={}", e.getClass().getSimpleName());
+            return "Tool execution failed";
         }
     }
 

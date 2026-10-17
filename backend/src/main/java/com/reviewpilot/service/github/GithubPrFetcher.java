@@ -62,7 +62,7 @@ public class GithubPrFetcher {
             }
         }
         // 循环自然走完仍未翻完 → truncated=true
-        return new FetchedFiles(List.copyOf(files), !complete);
+        return new FetchedFiles(files, !complete);
     }
 
     /** 抓取一页文件列表，并把 GitHub 状态码翻译成领域异常。 */

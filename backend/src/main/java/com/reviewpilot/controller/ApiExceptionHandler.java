@@ -37,9 +37,8 @@ public class ApiExceptionHandler {
     /** GitHub 鉴权失败 → 401。 */
     @ExceptionHandler(GithubAuthException.class)
     public ResponseEntity<ErrorResponse> handleGithubAuth(GithubAuthException e) {
-        // 上游响应体只写日志、绝不回传：它包含令牌持有者及其限流状态，
-        // 且把 403 与 404 的差异暴露出去会让本接口变成私有仓库存在性探测工具。
-        log.warn("GitHub auth rejected: status={} upstream body={}", e.status(), e.upstreamBody());
+        // 上游响应可能包含身份、代码或凭据，日志仅记录状态。
+        log.warn("GitHub auth rejected: status={}", e.status());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ErrorResponse.of(e.getMessage()));
     }
 
@@ -49,7 +48,7 @@ public class ApiExceptionHandler {
         // 401/403/404 之外的任意 GitHub 状态码统一转 502，
         // 否则 Spring 默认的 {timestamp,status,error,path} 响应体前端拦截器读不到，
         // 所有上游故障都只会显示成"请求失败"。
-        log.warn("GitHub upstream failure: {}", e.toString());
+        log.warn("GitHub upstream failure: type={}", e.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ErrorResponse.of("GitHub API request failed"));
     }
@@ -65,6 +64,8 @@ public class ApiExceptionHandler {
     public ResponseEntity<ErrorResponse> handleAi(AiProviderException e) {
         HttpStatus status = e instanceof AiAuthenticationException
                 ? HttpStatus.UNAUTHORIZED : HttpStatus.BAD_GATEWAY;
-        return ResponseEntity.status(status).body(ErrorResponse.of(e.getMessage()));
+        log.warn("AI upstream failure: type={}", e.getClass().getSimpleName());
+        return ResponseEntity.status(status).body(ErrorResponse.of(e instanceof AiAuthenticationException
+                ? "AI service authentication failed" : "AI service request failed"));
     }
 }

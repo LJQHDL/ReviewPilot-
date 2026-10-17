@@ -148,10 +148,7 @@ public class DeepSeekProvider implements ModelProvider {
                         .block();
             } catch (WebClientResponseException e) {
                 // 带状态码的 HTTP 错误（4xx/5xx）非瞬时故障，直接失败
-                String respBody = e.getResponseBodyAsString();
-                log.warn("DeepSeek {} call failed: status={} body={}",
-                        caller, e.getStatusCode().value(),
-                        respBody != null ? respBody.substring(0, Math.min(respBody.length(), 500)) : "null");
+                log.warn("DeepSeek {} call failed: status={}", caller, e.getStatusCode().value());
                 throw new AiProviderException(
                         "DeepSeek API call failed with status " + e.getStatusCode().value(), e);
             } catch (RuntimeException e) {
@@ -162,14 +159,14 @@ public class DeepSeekProvider implements ModelProvider {
                 if (attempt < maxRetries && isTransient) {
                     long delay = (attempt + 1) * 1000L;
                     log.warn("DeepSeek {} transient error (attempt {}/{}): {} — retrying in {}s",
-                            caller, attempt + 1, maxRetries + 1, msg, delay / 1000);
+                            caller, attempt + 1, maxRetries + 1, e.getClass().getSimpleName(), delay / 1000);
                     try { Thread.sleep(delay); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); break; }
                     continue;
                 }
                 if (attempt >= maxRetries) {
-                    log.error("DeepSeek {} failed after {} retries: {}", caller, maxRetries, msg);
+                    log.error("DeepSeek {} failed after {} retries: type={}", caller, maxRetries, e.getClass().getSimpleName());
                 }
-                throw new AiProviderException("DeepSeek API call failed: " + msg, e);
+                throw new AiProviderException("DeepSeek API call failed", e);
             }
         }
         return null;

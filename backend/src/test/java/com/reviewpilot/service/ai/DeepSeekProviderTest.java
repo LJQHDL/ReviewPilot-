@@ -20,7 +20,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class DeepSeekProviderTest {
+
+    @Test
+    void upstreamErrorBodyIsNotLogged(org.springframework.boot.test.system.CapturedOutput output) {
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("secret-marker"));
+        assertThrows(AiProviderException.class, () -> providerWithKey("test-key").chat(
+                java.util.List.of(Message.user("review")), java.util.List.of()));
+        org.junit.jupiter.api.Assertions.assertFalse(output.getAll().contains("secret-marker"));
+    }
 
     @Test
     void tool_arguments_round_trip_quotes_newlines_and_nested_values() throws Exception {

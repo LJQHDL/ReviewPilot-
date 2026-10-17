@@ -10,4 +10,8 @@ import java.util.List;
  */
 /** 代码上下文片段数据类，表示文件中需要提供给审查器的一段代码。 */
 public record ContextSlice(String file, int startLine, int endLine, List<String> lines) {
+    /** 固定上下文内容，避免提示词随调用方的列表修改而变化。 */
+    public ContextSlice {
+        lines = List.copyOf(lines);
+    }
 }

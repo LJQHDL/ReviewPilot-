@@ -91,6 +91,11 @@ public class ReviewPipeline {
         log.debug("PR {}/{}#{} → {} files{}", pr.owner(), pr.repo(), pr.number(),
                 files.size(), fetched.truncated() ? " (TRUNCATED at page cap)" : "");
 
+        //UserService.java
+        //ReviewPipeline.java
+        //application.yml
+
+
         // 空 PR 短路：不消耗任何 LLM 调用直接返回空结果
         if (files.isEmpty()) {
             return new ReviewResult(

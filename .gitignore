@@ -35,6 +35,7 @@ tmp/
 # --- Secrets / local config ---
 .env
 .env.*
+.reviewpilot.env
 application-local.yml
 application-local.properties
 

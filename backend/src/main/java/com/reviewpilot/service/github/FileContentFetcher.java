@@ -40,7 +40,7 @@ public class FileContentFetcher {
                 return meta.head().ref();
             }
         } catch (RuntimeException e) {
-            log.warn("Failed to fetch PR metadata for {}/{}: {}", pr.owner(), pr.repo(), e.toString());
+            log.warn("Failed to fetch PR metadata: type={}", e.getClass().getSimpleName());
         }
         return null;
     }
@@ -54,7 +54,7 @@ public class FileContentFetcher {
         try {
             return fetchAtRef(pr, filePath, ref);
         } catch (RuntimeException e) {
-            log.debug("Failed to fetch {}: {}", filePath, e.toString());
+            log.debug("Failed to fetch file: type={}", e.getClass().getSimpleName());
             return null;
         }
     }
@@ -85,7 +85,7 @@ public class FileContentFetcher {
                     fc.content().replaceAll("\\s", ""));
             return new String(decoded, StandardCharsets.UTF_8);
         } catch (RuntimeException e) {
-            log.debug("Failed to fetch file {}: {}", filePath, e.toString());
+            log.debug("Failed to fetch file: type={}", e.getClass().getSimpleName());
             return null;
         }
     }

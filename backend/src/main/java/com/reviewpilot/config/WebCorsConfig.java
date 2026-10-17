@@ -2,6 +2,13 @@ package com.reviewpilot.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.core.Ordered;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
+import java.util.List;
 import org.springframework.lang.NonNull;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -24,6 +31,22 @@ public class WebCorsConfig implements WebMvcConfigurer {
             String[] allowedOrigins
     ) {
         this.allowedOrigins = allowedOrigins;
+    }
+
+    /** 在鉴权过滤器之前处理跨域，使浏览器能读取 401/429。 */
+    @Bean
+    public FilterRegistrationBean<CorsFilter> apiCorsFilter() {
+        CorsConfiguration cors = new CorsConfiguration();
+        cors.setAllowedOrigins(List.of(allowedOrigins));
+        cors.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("*"));
+        cors.setExposedHeaders(List.of("Retry-After", "X-Request-ID"));
+        cors.setMaxAge(3600L);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", cors);
+        var registration = new FilterRegistrationBean<>(new CorsFilter(source));
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
+        return registration;
     }
 
     @Override

@@ -7,4 +7,8 @@ import java.util.List;
  */
 /** 差异代码块，记录一段变更的起止位置和其中的差异行。 */
 public record DiffHunk(int oldStart, int oldCount, int newStart, int newCount, List<DiffLine> lines) {
+    /** 保存差异行快照，确保代码行与块的定位信息保持一致。 */
+    public DiffHunk {
+        lines = List.copyOf(lines);
+    }
 }

@@ -11,6 +11,11 @@ import java.util.List;
 /** GitHub 文件拉取结果类，保存文件变更及截断状态。 */
 public record FetchedFiles(List<FileChange> files, boolean truncated) {
 
+    /** 所有构造入口统一保存文件清单快照。 */
+    public FetchedFiles {
+        files = List.copyOf(files);
+    }
+
     /** 工厂方法：文件数未触顶时的"完整"结果。 */
     public static FetchedFiles complete(List<FileChange> files) {
         return new FetchedFiles(files, false);

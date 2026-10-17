@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { review, isValidPrUrl, normalizePrUrl } from './api/review.js'
+import { review, isValidPrUrl, normalizePrUrl, setAccessToken } from './api/review.js'
 import AppHeader from './components/AppHeader.vue'
 import EmptyState from './components/EmptyState.vue'
 import LoadingPanel from './components/LoadingPanel.vue'
@@ -13,6 +13,13 @@ import SuggestionList from './components/SuggestionList.vue'
 import MetaFooter from './components/MetaFooter.vue'
 
 const prUrl = ref('')
+const accessToken = ref('')
+const accessSettingsOpen = ref(false)
+
+function clearAccessToken() {
+  accessToken.value = ''
+  setAccessToken('')
+}
 const status = ref('idle') // idle | loading | error | done
 const result = ref(null)
 const errorMsg = ref('')
@@ -105,6 +112,7 @@ async function start(urlInput) {
     // 深链：把 PR 地址同步到查询串，方便分享与刷新恢复
     syncDeepLink(url)
   } catch (e) {
+    if (e.status === 401) accessSettingsOpen.value = true
     errorMsg.value = e.message
     status.value = 'error'
   } finally {
@@ -122,12 +130,12 @@ function selectExample(url) {
   start(url)
 }
 
-// 深链进入：?pr=... 有效时自动开始评审
+// 深链仅填入地址，由用户明确提交后才触发付费评审。
 onMounted(() => {
   const q = new URLSearchParams(window.location.search).get('pr')
   if (q) {
     const url = normalizePrUrl(q)
-    if (isValidPrUrl(url)) { prUrl.value = url; start(url) }
+    if (isValidPrUrl(url)) prUrl.value = url
   }
 })
 </script>
@@ -144,6 +152,17 @@ onMounted(() => {
     <AppHeader v-model="prUrl" :loading="status === 'loading'" :field-error="fieldError" @submit="start()" />
 
     <main class="content">
+      <details class="access-settings glass" :open="accessSettingsOpen" @toggle="accessSettingsOpen = $event.target.open">
+        <summary>访问设置</summary>
+        <label for="access-token">服务访问令牌</label>
+        <div class="access-token-row">
+          <input id="access-token" v-model="accessToken" type="password" autocomplete="off"
+                 spellcheck="false" maxlength="256" placeholder="由部署者提供"
+                 aria-describedby="access-token-help" @input="setAccessToken($event.target.value)" />
+          <button type="button" @click="clearAccessToken">清除</button>
+        </div>
+        <p id="access-token-help">仅本页使用，刷新后清除。本地未启用鉴权时可留空；请勿填写 GitHub Token 或模型密钥。</p>
+      </details>
       <LoadingPanel v-if="status === 'loading'" :elapsed="elapsed" />
 
       <ErrorPanel v-else-if="status === 'error'" :message="errorMsg" :pr-url="prUrl" @retry="start()" />
@@ -206,6 +225,13 @@ onMounted(() => {
   padding: var(--space-5) var(--space-4);
 }
 
+.access-settings { padding: 12px 16px; margin-bottom: var(--space-4); border-radius: var(--radius); }
+.access-settings summary { cursor: pointer; color: var(--fg-muted); }
+.access-settings label { display: block; margin: 12px 0 6px; font-size: 13px; }
+.access-token-row { display: flex; gap: 8px; }
+.access-token-row input { flex: 1; min-width: 0; padding: 8px 10px; color: var(--fg); background: var(--surface-2); border: 1px solid var(--fg-subtle); border-radius: 6px; }
+.access-token-row button { padding: 8px 12px; cursor: pointer; color: var(--fg); background: var(--surface-2); border: 1px solid var(--fg-subtle); border-radius: 6px; }
+.access-settings p { margin: 8px 0 0; color: var(--fg-muted); font-size: 12px; }
 .result { display: flex; flex-direction: column; gap: var(--space-4); }
 
 .pr-ctx {

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -123,7 +124,7 @@ class ToolRegistryTest {
         String result = registry.execute(call, pr);
 
         assertTrue(result.contains("Unknown tool"));
-        assertTrue(result.contains("no_such_tool"));
+        assertFalse(result.contains("no_such_tool"));
     }
 
     @Test
@@ -136,7 +137,7 @@ class ToolRegistryTest {
         String result = registry.execute(call, pr);
 
         assertTrue(result.contains("Tool execution failed"));
-        assertTrue(result.contains("network error"));
+        assertFalse(result.contains("network error"));
     }
 
     @Test
