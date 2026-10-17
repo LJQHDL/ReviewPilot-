@@ -25,7 +25,6 @@ import java.util.TreeSet;
  * 行号定位不到的风险直接跳过——没有有用的兜底方案。
  */
 @Component
-/** 代码上下文加载器，负责从变更中提取 AI 审查所需的上下文。 */
 public class ContextLoader {
 
     /** 风险行每侧携带的上下文行数。 */

@@ -28,7 +28,6 @@ import java.util.List;
  * <p>规则层刻意是启发式、只看 patch 的——不解析 Java 源码。目的是廉价地抓住明显的
  * 坑，随后（PR#6）喂进 Prompt，让 AI 的评审一开始就带着先验信息。
  */
-/** 风险规则接口，定义单项代码风险检测的统一契约。 */
 public interface RiskRule {
 
     /** 稳定标识符，用于日志（及后续对 AI 建议的去重）。 */

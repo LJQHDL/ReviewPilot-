@@ -18,7 +18,6 @@ import java.util.function.Function;
 
 /** 统一解码初始评审与修订两个环节返回的评审 JSON：调用方提供传输层的修复手段，本类负责格式恢复。 */
 @Component
-/** AI 审查回复读取器，负责解析模型返回的结构化审查内容。 */
 public class ReviewReplyReader {
     private static final Logger log = LoggerFactory.getLogger(ReviewReplyReader.class);
     private final ObjectMapper json = new ObjectMapper();

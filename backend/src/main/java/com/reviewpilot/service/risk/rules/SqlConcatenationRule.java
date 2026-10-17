@@ -22,7 +22,6 @@ import java.util.regex.Pattern;
  * 漏掉一条真实注入的代价远高于一条啰嗦的评论。
  */
 @Component
-/** SQL 拼接风险规则，负责检测可能造成 SQL 注入的字符串拼接。 */
 public class SqlConcatenationRule implements RiskRule {
 
     /** 命中条件：一行同时含 SQL 形状的字面量与 {@code "..." +} 拼接。 */

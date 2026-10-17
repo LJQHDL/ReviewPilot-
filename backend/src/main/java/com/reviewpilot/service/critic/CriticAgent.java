@@ -17,7 +17,6 @@ import java.util.List;
 
 /** 执行一次评审质量检查（Critic），回复 JSON 非法时带错误反馈重试一次。 */
 @Component
-/** 审查批评代理，负责评估初始代码审查结果并指出遗漏问题。 */
 public class CriticAgent {
     private static final Logger log = LoggerFactory.getLogger(CriticAgent.class);
     private final ModelProvider modelProvider;

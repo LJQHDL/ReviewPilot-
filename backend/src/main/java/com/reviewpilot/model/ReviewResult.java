@@ -13,7 +13,6 @@ import java.util.List;
  * @param suggestions 可执行的改进建议，尽量带文件/行号
  * @param meta        提供方/模型/耗时等诊断信息，便于演示与调试
  */
-/** 代码审查结果数据类，汇总风险、建议及审查元信息。 */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ReviewResult(
         String prUrl,
@@ -52,10 +51,10 @@ public record ReviewResult(
         this(prUrl, summary, risks, suggestions, List.of(), meta);
     }
 
-    /** 紧凑构造器：将 null 集合归一化为空列表，保证前端可安全遍历。 */
+    /** 保存不可变快照；null 集合仍归一化为空列表，保证前端可安全遍历。 */
     public ReviewResult {
-        if (keyFindings == null) keyFindings = List.of();
-        if (risks == null) risks = List.of();
-        if (suggestions == null) suggestions = List.of();
+        keyFindings = keyFindings == null ? List.of() : List.copyOf(keyFindings);
+        risks = risks == null ? List.of() : List.copyOf(risks);
+        suggestions = suggestions == null ? List.of() : List.copyOf(suggestions);
     }
 }

@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link OpenAiCompatibleProvider} 的 HTTP 契约测试。
  * 端点信息（base-url/key/model）经 {@link ModelEndpoint} 入参传入，provider 自行拼地址与鉴权头。
  */
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class OpenAiCompatibleProviderTest {
 
     private MockWebServer server;
@@ -124,6 +125,15 @@ class OpenAiCompatibleProviderTest {
         AiProviderException e = assertThrows(AiProviderException.class,
                 () -> provider().complete(endpoint("sk-bad"), "sys", "user"));
         assertTrue(e.getMessage().contains("401"));
+    }
+
+    @Test
+    void upstreamErrorBodyIsNotLogged(org.springframework.boot.test.system.CapturedOutput output) {
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("secret-marker"));
+        assertThrows(AiProviderException.class,
+                () -> provider().chat(endpoint("test-key"), List.of(Message.user("review")), List.of()));
+        assertFalse(output.getAll().contains("secret-marker"),
+                "upstream response bodies may carry credentials and must not reach the log");
     }
 
     @Test

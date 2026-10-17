@@ -4,7 +4,6 @@ package com.reviewpilot.service.ai;
  * LLM 文本回复在 JSON 解析前的共享清洗工具：去代码围栏、提取 JSON 对象体，
  * 供主评审流程与 Critic 流程复用，避免两份实现产生分歧。
  */
-/** JSON 回复清理器，负责从模型文本中提取并清理 JSON 内容。 */
 public final class JsonReplyCleaner {
 
     private JsonReplyCleaner() {}

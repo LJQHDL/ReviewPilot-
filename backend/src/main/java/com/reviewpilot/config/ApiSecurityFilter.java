@@ -1,0 +1,170 @@
+package com.reviewpilot.config;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.reviewpilot.model.ErrorResponse;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.web.cors.CorsUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
+import java.util.UUID;
+import java.util.function.LongSupplier;
+
+/** 单进程共享身份的鉴权与审查准入；不信任客户端提交的代理 IP 头。 */
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 20)
+public class ApiSecurityFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(ApiSecurityFilter.class);
+    private static final long WINDOW_NANOS = 60_000_000_000L;
+    private static final String REQUEST_ID = "requestId";
+    private static final String REVIEW_PATH = "/api/review";
+    private final boolean enabled;
+    private final byte[] tokenDigest;
+    private final int reviewsPerMinute;
+    private final int maxConcurrentReviews;
+    private final ObjectMapper json;
+    private final LongSupplier nanoTime;
+    private long windowStarted;
+    private int admitted;
+    private int active;
+
+    @Autowired
+    public ApiSecurityFilter(
+            @Value("${reviewpilot.security.enabled:false}") boolean enabled,
+            @Value("${reviewpilot.security.access-token:}") String token,
+            @Value("${reviewpilot.security.reviews-per-minute:10}") int reviewsPerMinute,
+            @Value("${reviewpilot.security.max-concurrent-reviews:2}") int maxConcurrentReviews,
+            ObjectMapper json) {
+        this(enabled, token, reviewsPerMinute, maxConcurrentReviews, json, System::nanoTime);
+    }
+
+    ApiSecurityFilter(boolean enabled, String token, int reviewsPerMinute,
+                      int maxConcurrentReviews, ObjectMapper json, LongSupplier nanoTime) {
+        if (enabled && (token == null || !token.matches("[\\x21-\\x7E]{32,256}"))) {
+            throw new IllegalArgumentException("Configure a 32-256 character access token when authentication is enabled");
+        }
+        if (reviewsPerMinute <= 0 || maxConcurrentReviews <= 0) {
+            throw new IllegalArgumentException("Security rate and concurrency limits must be positive");
+        }
+        this.enabled = enabled;
+        this.tokenDigest = digest(token == null ? "" : token);
+        this.reviewsPerMinute = reviewsPerMinute;
+        this.maxConcurrentReviews = maxConcurrentReviews;
+        this.json = json;
+        this.nanoTime = nanoTime;
+        this.windowStarted = nanoTime.getAsLong();
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                    FilterChain chain) throws ServletException, IOException {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        // 鉴权、安全头与配额只属于本服务的 API；其他路径不归本过滤器管。
+        if (!path.startsWith("/api/")) {
+            chain.doFilter(request, response);
+            return;
+        }
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        String requestId = UUID.randomUUID().toString();
+        response.setHeader("X-Request-ID", requestId);
+        MDC.put(REQUEST_ID, requestId);
+        try {
+            if (("GET".equals(request.getMethod()) && "/api/health".equals(path))
+                    || CorsUtils.isPreFlightRequest(request)) {
+                chain.doFilter(request, response);
+                return;
+            }
+            if (enabled && !authenticated(request)) {
+                response.setHeader("WWW-Authenticate", "Bearer");
+                reject(response, 401, "Authentication required");
+                return;
+            }
+            // 只有审查提交消耗频率/并发额度；其他 API 请求只受鉴权约束。
+            if (!isReviewSubmission(request, path)) {
+                log.debug("api_request method={} path={}", request.getMethod(), path);
+                chain.doFilter(request, response);
+                return;
+            }
+            long retryAfter = acquire();
+            if (retryAfter > 0) {
+                response.setHeader("Retry-After", Long.toString(retryAfter));
+                reject(response, 429, "Review capacity exceeded; please retry later");
+                return;
+            }
+            log.debug("review_admitted method={} path={}", request.getMethod(), path);
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                release();
+            }
+        } finally {
+            MDC.remove(REQUEST_ID);
+        }
+    }
+
+    /** 仅 POST /api/review 计入审查额度，避免新增 POST 端点误占配额。 */
+    private static boolean isReviewSubmission(HttpServletRequest request, String path) {
+        return "POST".equals(request.getMethod()) && REVIEW_PATH.equals(path);
+    }
+
+    private boolean authenticated(HttpServletRequest request) {
+        var headers = Collections.list(request.getHeaders("Authorization"));
+        if (headers.size() != 1) return false;
+        String header = headers.get(0);
+        return header.length() >= 7 && header.length() <= 263
+                && header.regionMatches(true, 0, "Bearer ", 0, 7)
+                && MessageDigest.isEqual(tokenDigest, digest(header.substring(7)));
+    }
+
+    /** 原子更新窗口和在途计数，拒绝请求不占额度，不维护可无限增长的 IP 状态。 */
+    private synchronized long acquire() {
+        long now = nanoTime.getAsLong();
+        long elapsed = now - windowStarted;
+        if (elapsed >= WINDOW_NANOS) {
+            windowStarted = now;
+            admitted = 0;
+            elapsed = 0;
+        }
+        if (admitted >= reviewsPerMinute) {
+            return Math.max(1, (WINDOW_NANOS - elapsed + 999_999_999L) / 1_000_000_000L);
+        }
+        if (active >= maxConcurrentReviews) return 1;
+        admitted++;
+        active++;
+        return 0;
+    }
+
+    private synchronized void release() {
+        active--;
+    }
+
+    private void reject(HttpServletResponse response, int status, String error) throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        json.writeValue(response.getWriter(), ErrorResponse.of(error));
+    }
+
+    private static byte[] digest(String value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+}

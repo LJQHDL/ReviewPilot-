@@ -23,7 +23,6 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api")
-/** 代码审查接口控制器，负责接收审查请求并返回审查结果。 */
 public class ReviewController {
     private final ReviewPipeline pipeline;
 

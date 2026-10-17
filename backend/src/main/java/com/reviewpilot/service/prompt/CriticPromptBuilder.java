@@ -7,7 +7,6 @@ import java.util.List;
 
 /** 质量检查员（Critic）与修订环节的 Prompt 渲染器；本身不调用模型。 */
 @Component
-/** 批评提示词构建器，负责生成用于复核审查结果的提示词。 */
 public class CriticPromptBuilder {
     /** Critic 的 system prompt：定义 HALLUCINATION / MISSING / SEVERITY / DUPLICATE / CONSISTENCY 五类检查项与 JSON 输出契约。 */
     public String systemPrompt() {

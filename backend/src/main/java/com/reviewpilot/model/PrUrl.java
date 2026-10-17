@@ -8,14 +8,13 @@ import java.util.Objects;
  * 解析后的 GitHub PR 地址值对象，拆出 owner/repo/PR 编号并做格式校验。
  * 接受形如 {@code https://github.com/owner/repo/pull/12} 的 URL（允许末尾斜杠、锚点、查询串和首尾空白）。
  */
-/** Pull Request 地址值对象，保存仓库所有者、仓库名和 PR 编号。 */
 public record PrUrl(String owner, String repo, int number) {
 
     /** GitHub 官方 owner/repo 字符集；两者会被拼进对外 API 路径，因此不能放宽校验。 */
     private static final java.util.regex.Pattern NAME =
             java.util.regex.Pattern.compile("[A-Za-z0-9._-]{1,100}");
 
-    /** 紧凑构造器：校验 owner/repo 字符合法且 PR 编号为正整数。 */
+    /** 紧凑构造器：校验 owner/repo 字符合法（拒绝 `.`/`..` 路径段）且 PR 编号为正整数。 */
     public PrUrl {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(repo, "repo");
@@ -25,9 +24,17 @@ public record PrUrl(String owner, String repo, int number) {
         if (!NAME.matcher(owner).matches() || !NAME.matcher(repo).matches()) {
             throw new IllegalArgumentException("Unexpected owner/repo in PR URL");
         }
+        // 字符集允许点号，但 `.`/`..` 会成为路径段，必须在拼进 API 路径前拒绝。
+        if (isDotSegment(owner) || isDotSegment(repo)) {
+            throw new IllegalArgumentException("owner/repo must not be a dot segment");
+        }
         if (number <= 0) {
             throw new IllegalArgumentException("PR number must be positive, got " + number);
         }
+    }
+
+    private static boolean isDotSegment(String segment) {
+        return ".".equals(segment) || "..".equals(segment);
     }
 
     /** 从原始字符串解析 PR URL，任何不合规输入统一抛 IllegalArgumentException（→ 400）。 */

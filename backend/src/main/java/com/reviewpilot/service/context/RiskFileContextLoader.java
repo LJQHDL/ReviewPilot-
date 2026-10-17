@@ -12,7 +12,6 @@ import java.util.Map;
 
 /** 为规则命中风险的文件做可选的批量内容增强，并执行 Prompt 体积（截断）策略。 */
 @Component
-/** 风险文件上下文加载器，负责为高风险文件补充仓库代码上下文。 */
 public class RiskFileContextLoader {
     private static final Logger log = LoggerFactory.getLogger(RiskFileContextLoader.class);
     private static final int MAX_CONTENT_CHARS = 8_000;   // 单文件注入 Prompt 前的最大字符数

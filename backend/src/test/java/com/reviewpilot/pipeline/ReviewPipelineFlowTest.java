@@ -293,4 +293,23 @@ class ReviewPipelineFlowTest {
         ReviewResult r = pipeline.review("https://github.com/owner/repo/pull/1");
         assertEquals("ok", r.summary());
     }
+
+    @Test
+    void a_budget_degraded_review_still_carries_rule_risks() {
+        FileChange fc = new FileChange("src/Foo.java", "modified", 3, 1, false, "@@ -1 +1 @@", List.of());
+        when(fetcher.fetchFiles(any())).thenReturn(com.reviewpilot.service.github.FetchedFiles.complete(List.of(fc)));
+        when(promptBuilder.systemPrompt()).thenReturn("S");
+        when(promptBuilder.build(any(), any(), any(), any(), any(), any())).thenReturn("U");
+        RiskItem rule = new RiskItem(RiskLevel.HIGH, "src/Foo.java", 2, "unreleased lock");
+        when(riskDetector.scan(any())).thenReturn(List.of(rule));
+        // Agent ran out of budget: degraded summary, no AI findings.
+        when(reviewAgent.review(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new AgentReview(new ReviewResult("", "审查时间预算已用尽，以下为规则检测结果。",
+                        List.of(), List.of(), List.of(), null), 1, 0, 0, 0));
+
+        ReviewResult result = pipeline.review("https://github.com/owner/repo/pull/1");
+
+        assertTrue(result.summary().contains("时间预算已用尽"));
+        assertEquals(List.of(rule), result.risks(), "deterministic rule findings must survive a degraded review");
+    }
 }

@@ -32,7 +32,6 @@ import java.util.Map;
 
 /** 完整评审用例：准备证据（抓取/分类/规则检测/上下文）→ ReAct Agent 评审 → 反思修订 → 合并风险并组装 API 结果。 */
 @Service
-/** 代码审查流水线类，负责协调拉取变更、解析差异、风险检测和 AI 审查。 */
 public class ReviewPipeline {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewPipeline.class);

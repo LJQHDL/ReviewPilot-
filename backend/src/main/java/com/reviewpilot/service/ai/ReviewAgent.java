@@ -1,5 +1,6 @@
 package com.reviewpilot.service.ai;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.reviewpilot.model.Deadline;
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.model.ReviewResult;
@@ -24,7 +25,6 @@ import java.util.Map;
  * Bean 上不累积任何状态，因此单实例可并发服务多个 PR 而计数器互不串扰。
  */
 @Service
-/** AI 审查代理，负责通过模型分析代码变更并生成审查结果。 */
 public class ReviewAgent {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewAgent.class);
@@ -78,13 +78,9 @@ public class ReviewAgent {
         while (loop.round < maxRounds) {
             loop.round++;
 
-            // 墙钟预算耗尽：用已收集的信息立即作答，
-            // 不再启动客户端注定等不到的新一轮调用。
+            // 墙钟预算耗尽：不再发起任何模型调用，尽力复用最后一次回复。
             if (deadline.expired()) {
-                log.warn("Review budget exhausted after {} rounds / {} tool calls",
-                        loop.round - 1, loop.toolCalls);
-                messages.add(Message.user("审查时间预算已用尽，请立即输出审查结果 JSON，不要调用工具。"));
-                return finish(forceComplete(ep, messages, loop), loop);
+                return finish(stopAtBudget(messages, loop), loop);
             }
 
             // 字符预算超 80%：先压缩早期工具结果
@@ -129,9 +125,44 @@ public class ReviewAgent {
             return finish(parseReply(ep, resp.content(), messages, loop), loop);
         }
 
-        // 达到最大轮数仍未收敛——强制收尾（不带工具再问一次）
+        // 达到最大轮数仍未收敛——若预算已耗尽则同样硬停止，不再调用模型。
+        if (deadline.expired()) {
+            return finish(stopAtBudget(messages, loop), loop);
+        }
         messages.add(Message.user("已达到最大轮次 " + maxRounds + "。请立即输出审查结果 JSON。"));
         return finish(forceComplete(ep, messages, loop), loop);
+    }
+
+    /**
+     * 预算耗尽时的唯一出口：不发起任何模型调用。
+     * 先尝试解析最近一条非空 assistant 回复；直接调用 {@link ReviewReplyReader#parse}
+     * 而不是 {@code read}，避免解析失败时触发一次 repair 模型调用。
+     * 解析不出时返回降级结果，规则风险由流水线后续合并。
+     */
+    private ReviewResult stopAtBudget(List<Message> messages, Loop loop) {
+        Message last = null;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message m = messages.get(i);
+            if ("assistant".equals(m.role()) && m.content() != null && !m.content().isBlank()) {
+                last = m;
+                break;
+            }
+        }
+        if (last != null) {
+            try {
+                ReviewResult parsed = replyReader.parse(last.content());
+                log.warn("Review budget exhausted after {} rounds / {} tool calls; reused last assistant reply",
+                        Math.max(0, loop.round - 1), loop.toolCalls);
+                return parsed;
+            } catch (JsonProcessingException e) {
+                log.warn("Review budget exhausted after {} rounds / {} tool calls; last assistant reply is not valid JSON",
+                        Math.max(0, loop.round - 1), loop.toolCalls);
+            }
+        }
+        log.warn("Review budget exhausted after {} rounds / {} tool calls; returning degraded result",
+                Math.max(0, loop.round - 1), loop.toolCalls);
+        return new ReviewResult("", "审查时间预算已用尽，以下为规则检测结果。",
+                List.of(), List.of(), List.of(), null);
     }
 
     /** 以"禁用工具"的方式再问一次，强迫模型输出最终结果。 */

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReviewPilot · 56 个类是怎么打配合的</title>
+<style>
+:root{
+  --bg:#0f1117; --panel:#171a23; --panel2:#1e2230; --line:#2c3142;
+  --ink:#e8eaf2; --ink2:#9aa3b8; --ink3:#6b7488;
+  --det:#3fb98c;   /* 确定性层 */
+  --ai:#e0a03a;    /* Agent 层  */
+  --qc:#c56ba8;    /* 质检层    */
+  --data:#5b8dd9;  /* 数据/契约 */
+  --warn:#e05b5b;
+  --max:1120px;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f6f7fa; --panel:#fff; --panel2:#eef1f6; --line:#dfe3ec;
+    --ink:#141821; --ink2:#5a6472; --ink3:#8b94a3;
+    --det:#0f8a5f; --ai:#a8720f; --qc:#9c4483; --data:#2f6cb5; --warn:#c33; }
+}
+*{box-sizing:border-box}
+body{margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:var(--max); margin:0 auto; padding:48px 24px 96px}
+h1{font-size:38px; line-height:1.25; margin:0 0 10px; letter-spacing:-.5px}
+h2{font-size:13px; text-transform:uppercase; letter-spacing:1.6px; color:var(--ink3);
+   margin:64px 0 18px; font-weight:700}
+.sub{color:var(--ink2); font-size:17px; max-width:70ch}
+code,.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",monospace; font-size:.88em}
+code{background:var(--panel2); padding:1px 5px; border-radius:4px; color:var(--ink)}
+
+/* 图例 */
+.legend{display:flex; gap:20px; flex-wrap:wrap; margin:28px 0 0; font-size:13px; color:var(--ink2)}
+.legend i{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:7px;vertical-align:0}
+.b-det{background:var(--det)} .b-ai{background:var(--ai)} .b-qc{background:var(--qc)} .b-data{background:var(--data)}
+
+/* 流水线 */
+.line{display:flex; align-items:stretch; gap:0; flex-wrap:wrap}
+.stage{flex:1 1 150px; min-width:150px; background:var(--panel); border:1px solid var(--line);
+  border-radius:14px; padding:16px 14px; position:relative}
+.stage .n{font-size:11px; font-weight:800; color:var(--ink3); letter-spacing:1px}
+.stage .role{font-size:17px; font-weight:700; margin:4px 0 6px}
+.stage .who{font-size:12px; color:var(--ink2); line-height:1.5}
+.stage:after{content:"→"; position:absolute; right:-13px; top:50%; transform:translateY(-50%);
+  font-size:20px; color:var(--ink3); z-index:2}
+.stage:last-child:after{content:""}
+@media(max-width:820px){.stage:after{content:"↓"!important; right:auto; left:50%; top:auto; bottom:-19px; transform:translateX(-50%)}}
+.stage{margin:0 22px 22px 0}
+.s-det{border-top:3px solid var(--det)} .s-ai{border-top:3px solid var(--ai)} .s-qc{border-top:3px solid var(--qc)}
+
+/* 卡片 */
+.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 20px}
+.card h3{margin:0 0 2px; font-size:16px}
+.card .met{font-size:13px; color:var(--ink2); font-style:italic; margin-bottom:12px}
+.card .cls{font-size:11px; color:var(--ink3); letter-spacing:.4px; margin-bottom:10px}
+dl{margin:0; font-size:14px}
+dt{float:left; clear:left; width:64px; color:var(--ink3); font-size:12px; padding-top:3px}
+dd{margin:0 0 7px 70px}
+dd b{color:var(--ink)}
+.tag{display:inline-block; font-size:11px; padding:1px 7px; border-radius:20px; border:1px solid var(--line); color:var(--ink2); margin:0 4px 4px 0}
+.t-det{color:var(--det); border-color:var(--det)} .t-ai{color:var(--ai); border-color:var(--ai)}
+.t-qc{color:var(--qc); border-color:var(--qc)} .t-data{color:var(--data); border-color:var(--data)}
+
+/* 循环 */
+.loop{background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--ai);
+  border-radius:14px; padding:6px 22px 20px}
+.step{display:flex; gap:16px; padding:15px 0; border-bottom:1px dashed var(--line); align-items:flex-start}
+.step:last-child{border-bottom:0}
+.step .k{flex:0 0 30px; height:30px; border-radius:9px; background:var(--ai); color:#0f1117;
+  font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px}
+.step .t{flex:1}
+.step .t b{display:block; font-size:15px; margin-bottom:2px}
+.step .t span{font-size:14px; color:var(--ink2)}
+.back{margin-top:16px; padding:12px 16px; background:var(--panel2); border-radius:10px;
+  font-size:14px; color:var(--ink2)}
+.back b{color:var(--ai)}
+
+/* 注入树 */
+.tree{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px 26px;
+  font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:13.5px; line-height:2; overflow-x:auto}
+.tree .r{color:var(--ink3)}
+.tree .d{color:var(--det)} .tree .a{color:var(--ai)} .tree .q{color:var(--qc)} .tree .p{color:var(--data)}
+
+/* 残留 */
+.smell{background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--warn);
+  border-radius:12px; padding:15px 20px; margin-bottom:11px; font-size:14.5px}
+.smell b{display:block; margin-bottom:3px; font-size:15px}
+.smell span{color:var(--ink2)}
+
+table{width:100%; border-collapse:collapse; font-size:14px; background:var(--panel);
+  border:1px solid var(--line); border-radius:12px; overflow:hidden}
+th,td{padding:11px 14px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+th{background:var(--panel2); font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(--ink3)}
+tr:last-child td{border-bottom:0}
+td.w{white-space:nowrap; font-family:ui-monospace,Consolas,monospace; font-size:13px}
+.foot{margin-top:64px; padding-top:22px; border-top:1px solid var(--line); font-size:13px; color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>ReviewPilot：56 个类是怎么打配合的</h1>
+<p class="sub">把一份 GitHub PR 变成一份代码审查报告。中间是一条 <b>7 站的传送带</b>：
+前 4 站是「死规矩」（代码写死的，永远给同样答案），
+后 3 站是「活脑子」（会调用大模型，每次结果可能不同）。</p>
+
+<div class="legend">
+  <span><i class="b-det"></i>确定性层 · 可预测</span>
+  <span><i class="b-ai"></i>Agent 层 · 会自己查资料</span>
+  <span><i class="b-qc"></i>质检层 · 挑毛病返工</span>
+  <span><i class="b-data"></i>数据盒子 · 在站间传递</span>
+</div>
+
+<h2>01 · 全景：一个 PR 走完这条线</h2>
+<div class="line">
+  <div class="stage"><div class="n">前台</div><div class="role">接电话</div>
+    <div class="who"><code>ReviewController</code><br>只认识一个东西：工头</div></div>
+  <div class="stage"><div class="n">工头</div><div class="role">排班调度</div>
+    <div class="who"><code>ReviewPipeline</code><br>按顺序喊人，自己不干活</div></div>
+  <div class="stage s-det"><div class="n">站 1-4</div><div class="role">备料</div>
+    <div class="who">拉 PR → 拆 diff → 分文件 → 查风险 → 剪上下文</div></div>
+  <div class="stage s-ai"><div class="n">站 5</div><div class="role">写报告</div>
+    <div class="who"><code>ReviewAgent</code> + 工具箱<br>反复问大模型，最多 8 轮</div></div>
+  <div class="stage s-qc"><div class="n">站 6</div><div class="role">质检</div>
+    <div class="who"><code>ReflectionOrchestrator</code><br>挑出 5 类毛病 → 返工一次</div></div>
+  <div class="stage"><div class="n">站 7</div><div class="role">合并出货</div>
+    <div class="who"><code>mergeRisks</code> → <code>ReviewResult</code></div></div>
+</div>
+
+<h2>02 · 备料四站（确定性，可单测）</h2>
+<div class="grid">
+  <div class="card">
+    <h3>跑腿员</h3><div class="met">「去 GitHub 把改动取回来」</div>
+    <div class="cls"><code>GithubPrFetcher</code> · 66 行 HTTP 装配</div>
+    <dl>
+      <dt>它做</dt><dd>发 API 拿 PR 的 files / title / 代码搜索结果；把 <b>404/401/403 翻译</b>成 3 种自己的异常</dd>
+      <dt>交给</dt><dd><code>DiffParser</code> —— 边拉边拆，产出 <b><code>FileChange</code></b></dd>
+      <dt>还服务</dt><dd><code>ToolRegistry</code>（<code>searchCode</code>）、<code>FileContentFetcher</code>、<code>PrFilesController</code></dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>翻译员</h3><div class="met">「把一坨文本变成一行一行」</div>
+    <div class="cls"><code>DiffParser</code> · 纯函数，不联网</div>
+    <dl>
+      <dt>它做</dt><dd>正则认 <code>@@</code> 头，逐行按前缀分派，维护新旧两个行号计数器</dd>
+      <dt>狠处</dt><dd>遇到未知前缀 <b>直接丢掉整个 hunk</b>（宁可少报，不许行号错位）</dd>
+      <dt>暗号</dt><dd>行号 <b>0 = 这行不存在</b>。新增行 old=0，删除行 new=0 —— 下游全靠前几过滤</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>分拣员</h3><div class="met">「这是测试、那是 SQL」</div>
+    <div class="cls"><code>FileClassifier</code> → <code>FileType</code></div>
+    <dl>
+      <dt>它做</dt><dd>看路径 + diff 片段，5 级优先：<code>TEST→SQL→CONFIG→JAVA→OTHER</code>；没注解就回退看后缀</dd>
+      <dt>谁听</dt><dd><b>9 个风险规则</b>（决定我该不该检查这文件）+ <code>PromptBuilder</code>（分组）</dd>
+      <dt>别扭</dt><dd><code>risk</code> 包依赖 <code>classifier</code> 包的枚举 —— 改枚举，9 个规则一起受影响</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>9 个检查员</h3><div class="met">「每人只管一条死规矩」</div>
+    <div class="cls"><code>RiskDetector</code> + <code>RiskRule</code> × 9</div>
+    <dl>
+      <dt>契约</dt><dd><code>id()</code> / <code>appliesTo(FileType)</code> / <code>scan(FileChange)→List&lt;RiskItem&gt;</code></dd>
+      <dt>调度</dt><dd>Spring 把 9 个 <code>@Component</code> 注成 <code>List&lt;RiskRule&gt;</code>，双层循环<b>全问一遍</b></dd>
+      <dt>没有</dt><dd>无优先级、无短路、无去重；某条规则炸了只 WARN，不中断</dd>
+      <dt>加规则</dt><dd>丢一个类进 <code>rules/</code> 就行，注册中心不用改</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>剪裁员</h3><div class="met">「给出事那行旁边几行」</div>
+    <div class="cls"><code>ContextLoader</code> → <code>ContextSlice</code></div>
+    <dl>
+      <dt>它做</dt><dd>从已有的 hunks 里裁 <b>±5 行</b>，相邻窗口合并</dd>
+      <dt>关键</dt><dd><b>它不联网</b>（源码里明确注释）。全文是另一个人的活</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>取全文的</h3><div class="met">「把整份文件搬回来」</div>
+    <div class="cls"><code>FileContentFetcher</code></div>
+    <dl>
+      <dt>两个门</dt><dd><code>fetchForRiskyFiles()</code> ← 只有工头用（批量预取，受开关控制）<br>
+        <code>fetchContent()</code> ← 只有 <code>ToolRegistry</code> 用（模型主动要）</dd>
+      <dt>重复</dt><dd>两边都会各发一次 PR metadata 请求，head ref 被反复取，无缓存</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>03 · 站 5：ReviewAgent 的循环（整个项目最聪明的一段）</h2>
+<div class="loop">
+  <div class="step"><div class="k">1</div><div class="t"><b>先算字数</b>
+    <span>对话超 <b>80%</b>（64000 字符）→ 把超过 2000 字的工具结果砍到 1000；超 <b>100%</b> → 直接逼模型收尾，不再给它选</span></div></div>
+  <div class="step"><div class="k">2</div><div class="t"><b>决定这次给不给工具</b>
+    <span>已经调过 <b>4 次</b>工具就把工具收走 —— 防止模型无限查下去，逼它收敛</span></div></div>
+  <div class="step"><div class="k">3</div><div class="t"><b>问大脑</b>
+    <span><code>modelProvider.chat(messages, tools)</code> → 拿回 <code>AgentResponse</code></span></div></div>
+  <div class="step"><div class="k">4</div><div class="t"><b>有 tool_calls？</b>
+    <span>先把模型这句话塞回历史，再逐个 <code>toolRegistry.execute(call, pr)</code>，结果包成 <code>Message.tool()</code> 追加；第 3 次起额外插一句中文「别再查了」</span></div></div>
+  <div class="step"><div class="k">5</div><div class="t"><b>没 tool_calls → 这就是终稿</b>
+    <span><code>parseWithRetry()</code>：剥代码围栏 → 抽 JSON → 解析。失败就把<b>报错原文塞回去</b>再问一次；还失败 → 退化成正则抠 <code>summary</code>，风险列表交空（只记日志，不报错）</span></div></div>
+  <div class="back">↺ 回到 <b>1</b>。轮数上限 <b>max-rounds: 8</b>；第 0 轮就想退出会被判定异常，走 <code>forceComplete</code>。
+  跑完 <code>lastReactRounds</code> / <code>lastToolCallCount</code> 被工头反读，塞进响应的 <code>Meta</code>。</div>
+</div>
+
+<h2>04 · 工具箱和大脑（Agent 的两个外部件）</h2>
+<div class="grid">
+  <div class="card">
+    <h3>工具箱</h3><div class="met">「模型的手」</div>
+    <div class="cls"><code>ToolRegistry</code> · 线程安全单例</div>
+    <dl>
+      <dt>两个工具</dt><dd><span class="tag t-ai">fetch_file_content(path)</span><span class="tag t-ai">search_repo(query)</span></dd>
+      <dt>怎么注册</dt><dd><b>硬编码</b>在 <code>getDefinitions()</code> 里的 <code>List.of(...)</code>，不扫注解 —— 加工具 = 改这个方法</dd>
+      <dt>怎么分发</dt><dd><code>switch(call.name())</code>，<code>default</code> 返回「Unknown tool」；<b>所有异常被包成字符串</b>，工具永远炸不掉循环</dd>
+      <dt>限流</dt><dd>只有 <code>search_repo</code>：固定窗口 25 次/60s（<code>AtomicInteger</code> + <code>volatile</code>），加 <code>ConcurrentHashMap</code> 缓存，键 <code>owner/repo/query</code>，<b>永不淘汰</b>且跨 PR 共享</dd>
+      <dt>巧处</dt><dd><code>PrUrl</code> 是<b>方法参数</b>不是字段 —— 单例才不会被打上某个 PR 的状态</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>大脑插座</h3><div class="met">「换大脑不用改电路」</div>
+    <div class="cls"><code>ModelProvider</code>（接口）← <code>DeepSeekProvider</code>（唯一实现）</div>
+    <dl>
+      <dt>两个方法</dt><dd><code>complete(sys,user)</code> 单发无记忆 · <code>chat(messages,tools)</code> 多轮带工具</dd>
+      <dt>谁在用</dt><dd><b>同一个 bean</b> 被 3 处注入：<code>ReviewAgent</code>(用 chat)、<code>ReflectionOrchestrator</code>(用 complete)、<code>ReviewPipeline</code>(用 complete)</dd>
+      <dt>HTTP</dt><dd><b>WebClient</b> + <code>.block()</code>（响应式壳，同步芯）。<code>DeepSeekClientConfig</code> 造，带 <code>@Qualifier</code> —— 因为 GitHub 那边也造了一个 <code>WebClient</code>，同类型两个 bean 不指定会歧义</dd>
+      <dt>重试</dt><dd>只重 <b>连接被重置/超时/拒绝</b> 这类；<b>4xx/5xx 立刻抛</b>，不浪费重试</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>写说明书的</h3><div class="met">「决定模型看见什么」</div>
+    <div class="cls"><code>PromptBuilder</code>(bean) + <code>PromptTemplate</code>(enum)</div>
+    <dl>
+      <dt>分工</dt><dd>Builder 管全部文案和字数预算（单文件 6000 字 / 总 60000 字）与截断；<code>systemPrompt()</code> 里是 <b>8 条 <code>## Rule N</code> 审查员守则</b>，<code>reactSystemPrompt()</code> 只是「8 条 + 一段 Tool Use」。Template 只是 <code>FileType → 提示语</code> 的静态映射，不是 bean</dd>
+      <dt>谁调</dt><dd><code>ReviewAgent</code> 要 <code>reactSystemPrompt()</code>；<code>ReviewPipeline</code> 要 <code>systemPrompt()+build()</code></dd>
+      <dt>代价</dt><dd><b>一次请求把 user prompt 造了两遍，而且内容不同</b>：Agent 那份<b>不带</b> <code>fullFileContents</code>（要它自己用工具去取），质检/返工那份<b>带</b> —— 于是返工看到的材料比原审查还多。系统提示词那半边是故意的、没问题</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>05 · 站 6：质检环（一个很克制的实现）</h2>
+<div class="loop" style="border-left-color:var(--qc)">
+  <div class="step"><div class="k" style="background:var(--qc);color:#fff">1</div><div class="t"><b>换个身份再问一次</b>
+    <span>同一条 <code>complete()</code>，但系统提示词换成「你是质检员」。查 5 类毛病：<br>
+    <span class="tag t-qc">[HALLUCINATION] 编的</span><span class="tag t-qc">[MISSING] 漏的</span><span class="tag t-qc">[SEVERITY] 判级错</span><span class="tag t-qc">[DUPLICATE] 重复</span><span class="tag t-qc">[CONSISTENCY] 前后矛盾</span></div></div>
+  <div class="step"><div class="k" style="background:var(--qc);color:#fff">2</div><div class="t"><b>要不要返工</b>
+    <span><code>needsRevision() = !issues.isEmpty()</code> —— <b>故意不打分数</b>，有问题就返工，语义简单</span></div></div>
+  <div class="step"><div class="k" style="background:var(--qc);color:#fff">3</div><div class="t"><b>返工 = 重新生成一次</b>
+    <span>把毛病<b>追加进系统提示词</b>，再 <code>complete()</code> 一次。<b>不重跑 ReviewAgent</b></span></div></div>
+  <div class="back" style="color:var(--ink2)">⚠ 质检和返工都走 <code>complete()</code> —— 所以它们<b>没有工具、没有多轮历史</b>：只能就着已有材料挑毛病，不能自己去 GitHub 查证是否编造。
+  返工只 <b>1 次</b>（配置里写的 2 被注释掉了）。质检自己的回答解析失败会重试 1 次，再失败就<b>记 ERROR 并放行原稿</b>，不静默吞掉。</div>
+</div>
+
+<h2>06 · 谁被塞进谁（构造器注入的真图）</h2>
+<div class="tree">
+<span class="r">前台层</span><br>
+<code>ReviewController</code> ── <span class="a">ReviewPipeline</span> <span class="r">（只此一个，不认识任何 AI 类）</span><br>
+<code>PrFilesController</code> ── <span class="d">GithubPrFetcher</span> <span class="r">·</span> <code>HealthController</code> ── <span class="r">（零依赖）</span><br>
+<br>
+<span class="r">工头（9 个依赖，全场最大扇出）</span><br>
+<b><span class="a">ReviewPipeline</span></b> ──┬─ <span class="d">GithubPrFetcher</span>  ├─ <span class="d">FileClassifier</span>   ├─ <span class="d">RiskDetector</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="d">ContextLoader</span>      ├─ <span class="d">FileContentFetcher</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="a">ReviewAgent</span>        ├─ <span class="a">PromptBuilder</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="q">ReflectionOrchestrator</span> └─ <span class="a">ModelProvider</span> <span class="r">(工头自己也要单发一次)</span><br>
+<br>
+<span class="r">往下就三根线</span><br>
+<code><span class="a">ReviewAgent</span></code> ── <span class="a">ModelProvider</span> · <span class="a">ToolRegistry</span> · <span class="a">PromptBuilder</span><br>
+<code><span class="a">ToolRegistry</span></code> ── <span class="d">GithubPrFetcher</span>(searchCode) · <span class="d">FileContentFetcher</span>(fetchContent)<br>
+<code><span class="q">ReflectionOrchestrator</span></code> ── <span class="a">ModelProvider</span> <span class="r">（只用到 complete，不碰工具）</span><br>
+<code><span class="d">RiskDetector</span></code> ── <span class="d">List&lt;RiskRule&gt;</span> ×9 · <span class="d">FileClassifier</span> <span class="r">（↖ 跨层依赖，见下方残留）</span><br>
+<br>
+<span class="r">数据盒子（谁写 → 谁读）</span><br>
+<code><span class="p">FileChange</span></code> <span class="r">全场主干</span> → .hunks() 喂 <span class="d">9 规则 + ContextLoader</span> ｜ .patch() <b>只有</b> FileClassifier 读 ｜ .binary() 只有 <span class="a">PromptBuilder</span> 与 HardcodedSecretRule 读<br>
+<code><span class="p">RiskItem</span></code> → <span class="d">RiskDetector</span> 与 <span class="a">ReviewAgent</span> 两边产 → <span class="a">PromptBuilder</span> · <span class="q">Critic</span> · <span class="a">mergeRisks</span> · 前端 JSON<br>
+<code><span class="p">PrUrl</span></code> → 前台 <code>parse()</code> 一次 → 之后一路<b>当参数往下传</b>（不做字段、不做 ThreadLocal）
+</div>
+
+<h2>07 · 出货前的合并</h2>
+<div class="card" style="margin-bottom:14px">
+<dl>
+  <dt>怎么去重</dt><dd><code>mergeRisks()</code> 在工头里（<code>private static</code>）。键是 <b><code>file|line|message</code></b> 三段全等，装进 <code>LinkedHashSet</code></dd>
+  <dt>谁赢</dt><dd><b>规则风险先进，AI 风险后进</b> —— 模型复述了同一条会被吃掉；但<b>换了措辞就留下两行</b>（无排序、无按 severity 合并）。这个漏网之鱼正是质检 <code>[DUPLICATE]</code> 要抓的</dd>
+</dl>
+</div>
+
+<h2>08 · 重构留下的痕迹（诚实清单）</h2>
+<p class="sub" style="margin-bottom:18px">V3 把「单次调用」改成了 ReAct，搬得很干净的地方是 <code>service/ai</code>；下面这几处是搬完还挂在外面的。</p>
+
+<div class="smell"><b>两套几乎一样的 JSON 解析栈</b>
+<span><code>ReviewAgent</code> 和 <code>ReviewPipeline</code> 各有 <code>parseWithRetry / parseCleaned / parseRisks / parseSuggestions</code>。只把剥围栏抽成了 <code>JsonReplyCleaner</code>。原因：返工输出的解析还留在工头（V2 时代写的），没跟着搬。</span></div>
+
+<div class="smell"><b>工头里有一段死代码</b>
+<span><code>ReviewPipeline.parseModelReply()</code> 在主代码里<b>没有任何调用方</b>，只有 <code>ReviewPipelineParseTest</code> 在用 —— 测试在保着一份没人跑的旧逻辑。</span></div>
+
+<div class="smell"><b>同一份 user prompt 造两遍，内容还不一样</b>
+<span>工头 <code>:133</code> 造的那份<b>带</b>全文，只在触发返工时才被用 —— 不触发就是白算。而 <code>ReviewAgent</code> 走 <code>reactUserPrompt()</code>，它内部转调 <code>build(..., Map.of(), ...)</code>，<b>不带</b>全文（要求模型自己用工具取）。结果：返工拿到的材料比被它修正的那份审查还多。系统提示词那半边是故意的：<code>reactSystemPrompt()</code> = 基础 8 条守则 + 工具段落，返工没工具所以正好该丢掉那段。</span></div>
+
+<div class="smell"><b>分类做了两遍</b>
+<span>工头 <code>:108</code> 对全部文件分类一次，<code>RiskDetector:43</code> 又对同一批 <code>FileChange</code> 分一次。<code>FileClassifier</code> 无缓存。</span></div>
+
+<div class="smell"><b>类型过滤有两条不一致的路</b>
+<span>9 条规则里 7 条覆盖 <code>appliesTo()</code>；<b>BareCatch 和 ExceptionSwallowing 用默认 <code>true</code>，改在 <code>scan()</code> 里 <code>filename.endsWith(".java")</code> 兜底</b>。同一个判断两个地方做。</span></div>
+
+<div class="smell"><b>keyFindings 在返工时丢了</b>
+<span>只有 <code>ReviewAgent</code> 的解析器认 <code>keyFindings</code>，工头那份不认 → 一旦触发返工，这个字段静默变空。</span></div>
+
+<div class="smell"><b>Agent 用可变字段往外递统计</b>
+<span><code>lastReactRounds</code> / <code>lastToolCallCount</code> 是单例 bean 上的可变字段，工头跑完再反读 —— 并发请求会互相覆盖。</span></div>
+
+<div class="smell"><b><code>ToolCall.mapToJson</code> 手搓 JSON 不转义</b>
+<span><code>StringBuilder</code> 拼的，参数里出现 <code>"</code> 或换行就生成非法 JSON —— 而这段正好会在第 2 轮起被重放进对话历史。</span></div>
+
+<div class="smell"><b>HTTP 状态码靠字符串嗅探</b>
+<span>工头/前台判断「是不是没配 key」用的是 <code>message.startsWith("DeepSeek API key is not set")</code> 决定回 401 还是 502。改文案就断。</span></div>
+
+<div class="smell"><b>5 个死字段 + 一处冗余取数</b>
+<span><code>GithubPrFile</code> 的 <code>blobUrl/rawUrl/contentsUrl/sha/changes</code> 全代码零消费（<code>toFileChange</code> 只取 5 个）。而 <code>fullFileContents</code> 是工头预取的，只有返工那份 prompt 用得上 —— ReAct 会自己用 <code>fetch_file_content</code> 再下一遍，预取的那份对主路径是浪费。</span></div>
+
+<div class="smell" style="border-left-color:var(--ai)"><b>不是类协作、但顺手查出来的真 bug：<code>application.yml</code> 的 agent 段是死的</b>
+<span>yml 把 <code>react.max-rounds</code> 等 4 个键挂在 <code>reviewpilot.<b>ai.</b>agent.*</code> 下，而代码里 <code>@Value</code> 读的是 <code>reviewpilot.agent.*</code> —— 少了中间那段 <code>.ai</code>，全库只有一个配置文件，所以这 4 个<b>全部落到代码默认值</b>。现在看不出来是因为默认值和文件里写的刚好一样（8 / 64000 / true / true）。真去把 <code>reflection.enabled</code> 改成 <code>false</code>，反射<b>照样会跑</b>。</span></div>
+
+<h2>09 · 一句话记住每一层</h2>
+<table>
+<tr><th>层</th><th>包</th><th>类数</th><th>一句话</th></tr>
+<tr><td>前台</td><td class="w">controller/</td><td>3</td><td>接 HTTP、翻译异常，唯一「不认识 AI」的层</td></tr>
+<tr><td>工头</td><td class="w">pipeline/</td><td>1</td><td>只排序和合并，业务全在别人身上（但仍挂着两套解析器）</td></tr>
+<tr><td><span style="color:var(--det)">备料</span></td><td class="w">service/{github,diff,classifier,risk,context}</td><td>24</td><td>纯函数 + 可单测；唯一不确定的来源是 GitHub 网络</td></tr>
+<tr><td><span style="color:var(--ai)">自主</span></td><td class="w">service/{ai,prompt}</td><td>12</td><td>模型决定查什么，工具决定它能查什么</td></tr>
+<tr><td><span style="color:var(--qc)">质检</span></td><td class="w">service/critic/</td><td>2</td><td>一次单发挑毛病，最多返工一次</td></tr>
+<tr><td><span style="color:var(--data)">契约</span></td><td class="w">model/ + 各包 record</td><td>~20</td><td>record 都带方法（<code>toApiMap</code>/<code>needsRevision</code>），没有一个贫血</td></tr>
+<tr><td>水电</td><td class="w">config/</td><td>5</td><td>两个 <code>WebClient</code> bean + 两个 <code>@ConfigurationProperties</code> record</td></tr>
+</table>
+
+<div class="foot">
+数据来自 <code>feat/v3-react-agent</code> @ <code>a9e885d</code> 的实际源码（构造器签名与调用点逐个核过），不是 <code>CLAUDE.md</code> 的复述 —— 二者在「类数 56 / 工头仍持有 JSON 解析 / prompt 造两遍」这三点上已经不一致。
+</div>
+
+</div>
+</body>
+</html>

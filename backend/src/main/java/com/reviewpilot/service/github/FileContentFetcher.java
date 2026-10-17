@@ -14,7 +14,6 @@ import java.util.Base64;
 
 /** GitHub Contents/PR 元数据适配器：负责抓取并解码源文件内容，不涉及 Prompt 预算策略。 */
 @Component
-/** GitHub 文件内容获取服务，负责读取仓库中的源文件内容。 */
 public class FileContentFetcher {
 
     private static final Logger log = LoggerFactory.getLogger(FileContentFetcher.class);
@@ -40,7 +39,7 @@ public class FileContentFetcher {
                 return meta.head().ref();
             }
         } catch (RuntimeException e) {
-            log.warn("Failed to fetch PR metadata for {}/{}: {}", pr.owner(), pr.repo(), e.toString());
+            log.warn("Failed to fetch PR metadata: type={}", e.getClass().getSimpleName());
         }
         return null;
     }
@@ -54,7 +53,7 @@ public class FileContentFetcher {
         try {
             return fetchAtRef(pr, filePath, ref);
         } catch (RuntimeException e) {
-            log.debug("Failed to fetch {}: {}", filePath, e.toString());
+            log.debug("Failed to fetch file: type={}", e.getClass().getSimpleName());
             return null;
         }
     }
@@ -85,7 +84,7 @@ public class FileContentFetcher {
                     fc.content().replaceAll("\\s", ""));
             return new String(decoded, StandardCharsets.UTF_8);
         } catch (RuntimeException e) {
-            log.debug("Failed to fetch file {}: {}", filePath, e.toString());
+            log.debug("Failed to fetch file: type={}", e.getClass().getSimpleName());
             return null;
         }
     }

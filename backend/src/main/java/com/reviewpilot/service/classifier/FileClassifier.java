@@ -24,7 +24,6 @@ import org.springframework.stereotype.Component;
  * 子串匹配已足够可靠，还省去二次解析。
  */
 @Component
-/** 文件分类器，负责根据文件名判断代码文件类型。 */
 public class FileClassifier {
 
     /** 按"测试 → SQL → 配置 → Java → OTHER"的优先级对单个变更文件分类。 */

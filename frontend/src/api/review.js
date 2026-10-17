@@ -5,6 +5,18 @@ const client = axios.create({
   timeout: 120000
 })
 
+// 仅保存在当前页面内存中；不写入构建配置、URL 或浏览器存储。
+let accessToken = ''
+export function setAccessToken(value) {
+  accessToken = typeof value === 'string' ? value.trim() : ''
+}
+
+client.interceptors.request.use(config => {
+  if (accessToken) config.headers.set('Authorization', `Bearer ${accessToken}`)
+  else config.headers.delete('Authorization')
+  return config
+})
+
 client.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -14,7 +26,10 @@ client.interceptors.response.use(
       (error.code === 'ECONNABORTED' ? '请求超时，后端仍在评审中，请稍后重试' : null) ||
       error.message ||
       '请求失败'
-    return Promise.reject(new Error(reason))
+    const failure = new Error(error.response?.status === 401 && data?.error === 'Authentication required'
+      ? '请在访问设置中输入有效的服务访问令牌' : reason)
+    failure.status = error.response?.status
+    return Promise.reject(failure)
   }
 )
 

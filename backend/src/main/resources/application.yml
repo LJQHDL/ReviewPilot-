@@ -1,4 +1,5 @@
 server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: 8080
   servlet:
     context-path: /
@@ -11,8 +12,17 @@ logging:
   level:
     root: INFO
     com.reviewpilot: DEBUG
+  pattern:
+    # 每个 API 请求的 requestId 由 ApiSecurityFilter 写入 MDC，随所有日志输出，
+    # 便于把脱敏后的 5xx 与具体请求关联起来。
+    level: "%5p [%X{requestId:-}]"
 
 reviewpilot:
+  security:
+    enabled: ${REVIEWPILOT_SECURITY_ENABLED:false}
+    access-token: ${REVIEWPILOT_ACCESS_TOKEN:}
+    reviews-per-minute: 10
+    max-concurrent-reviews: 2
   web:
     cors:
       allowed-origins: http://localhost:5173,http://127.0.0.1:5173
@@ -30,7 +40,7 @@ reviewpilot:
     # allowed (e.g. [octocat/Hello-World, my-org/*]). Empty means any repository a
     # caller names — fine on localhost, not fine for a private-repo token on a host
     # callers can reach.
-    allowed-repos: []
+    allowed-repos: ${REVIEWPILOT_ALLOWED_REPOS:}
     # Ceiling for a single GitHub HTTP call. Every GitHub call blocks a servlet
     # thread, so this is what stops one stalled connection pinning a worker forever.
     timeout: 10s

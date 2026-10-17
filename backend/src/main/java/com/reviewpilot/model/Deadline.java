@@ -11,7 +11,6 @@ package com.reviewpilot.model;
  *
  * @param expiresAtMillis 绝对截止时间戳，{@code 0} 表示未设置预算
  */
-/** 请求截止时间值对象，用于控制审查流程的剩余执行时间。 */
 public record Deadline(long expiresAtMillis) {
 
     /** 不限时的哨兵值。 */

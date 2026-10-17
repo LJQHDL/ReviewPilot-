@@ -15,7 +15,6 @@ import java.util.List;
 
 /** 编排"质量检查 → 可选修订"闭环，向流水线返回结构化结果而非直接改写评审。 */
 @Component
-/** 反思编排器，负责组织批评、修订和复核流程以改进审查结果。 */
 public class ReflectionOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(ReflectionOrchestrator.class);
