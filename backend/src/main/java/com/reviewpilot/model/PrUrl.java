@@ -14,7 +14,7 @@ public record PrUrl(String owner, String repo, int number) {
     private static final java.util.regex.Pattern NAME =
             java.util.regex.Pattern.compile("[A-Za-z0-9._-]{1,100}");
 
-    /** 紧凑构造器：校验 owner/repo 字符合法且 PR 编号为正整数。 */
+    /** 紧凑构造器：校验 owner/repo 字符合法（拒绝 `.`/`..` 路径段）且 PR 编号为正整数。 */
     public PrUrl {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(repo, "repo");
@@ -24,9 +24,17 @@ public record PrUrl(String owner, String repo, int number) {
         if (!NAME.matcher(owner).matches() || !NAME.matcher(repo).matches()) {
             throw new IllegalArgumentException("Unexpected owner/repo in PR URL");
         }
+        // 字符集允许点号，但 `.`/`..` 会成为路径段，必须在拼进 API 路径前拒绝。
+        if (isDotSegment(owner) || isDotSegment(repo)) {
+            throw new IllegalArgumentException("owner/repo must not be a dot segment");
+        }
         if (number <= 0) {
             throw new IllegalArgumentException("PR number must be positive, got " + number);
         }
+    }
+
+    private static boolean isDotSegment(String segment) {
+        return ".".equals(segment) || "..".equals(segment);
     }
 
     /** 从原始字符串解析 PR URL，任何不合规输入统一抛 IllegalArgumentException（→ 400）。 */

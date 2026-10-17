@@ -76,4 +76,16 @@ class PrUrlTest {
     void rejects_garbage() {
         assertThrows(IllegalArgumentException.class, () -> PrUrl.parse("not a url"));
     }
+
+    @Test
+    void rejects_dot_segments_in_owner_or_repo() {
+        assertThrows(IllegalArgumentException.class,
+                () -> PrUrl.parse("https://github.com/../foo/pull/1"));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrUrl.parse("https://github.com/./foo/pull/1"));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrUrl.parse("https://github.com/foo/../pull/1"));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrUrl.parse("https://github.com/%2e%2e/foo/pull/1"));
+    }
 }

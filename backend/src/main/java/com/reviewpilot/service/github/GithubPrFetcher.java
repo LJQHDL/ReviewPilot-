@@ -4,10 +4,14 @@ import com.reviewpilot.config.GithubProperties;
 import com.reviewpilot.model.PrUrl;
 import com.reviewpilot.service.diff.DiffParser;
 import com.reviewpilot.service.diff.FileChange;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.ArrayList;
@@ -23,6 +27,8 @@ import java.util.List;
  */
 @Service
 public class GithubPrFetcher {
+
+    private static final Logger log = LoggerFactory.getLogger(GithubPrFetcher.class);
 
     private static final int FILES_PER_PAGE = 100;
 
@@ -60,7 +66,12 @@ public class GithubPrFetcher {
                 break;
             }
         }
-        // 循环自然走完仍未翻完 → truncated=true
+        // 最后一页恰好满载时，无法区分"正好翻完"与"还有下一页"：
+        // 多探一页判断是否还有内容（探测结果不加入列表），避免把完整 PR 误报为截断。
+        if (!complete) {
+            List<GithubPrFile> probe = fetchFilePage(pr, props.maxFilePages() + 1);
+            complete = probe == null || probe.isEmpty();
+        }
         return new FetchedFiles(files, !complete);
     }
 
@@ -86,14 +97,24 @@ public class GithubPrFetcher {
             }
             throw new GithubApiException("GitHub API call failed: " + status, e);
         } catch (RuntimeException e) {
-            // 超时或解码缓冲超限：包装成类型化的上游故障，让 API 返回 502
-            // 而不是不可读、未映射的 500
-            throw new GithubApiException("GitHub API call failed: " + e, e);
+            // 只有传输层故障才是上游问题；空指针、非法状态等编程错误必须原样抛出，
+            // 否则会被伪装成 502，排障时找不到真正的原因。
+            if (!isTransportFailure(e)) throw e;
+            throw new GithubApiException("GitHub API call failed: " + e.getClass().getSimpleName(), e);
         }
     }
 
+    /** 传输层故障：连接失败、响应超时、解码缓冲超限。 */
+    private static boolean isTransportFailure(RuntimeException e) {
+        return e instanceof WebClientRequestException
+                || e instanceof DataBufferLimitException
+                || (e instanceof IllegalStateException && e.getMessage() != null
+                    && e.getMessage().startsWith("Timeout on blocking read"));
+    }
+
     /**
-     * 抓取 PR 标题。失败时返回 null 让管线优雅降级——标题只是提示，不是必需输入。
+     * 抓取 PR 标题。传输故障时返回 null 让管线优雅降级——标题只是提示，不是必需输入；
+     * 编程错误仍然抛出，不被静默吞掉。
      */
     public String fetchPrTitle(PrUrl pr) {
         try {
@@ -104,6 +125,8 @@ public class GithubPrFetcher {
                     .block(props.timeout());
             return meta != null ? meta.title() : null;
         } catch (RuntimeException e) {
+            if (!isTransportFailure(e)) throw e;
+            log.warn("Failed to fetch PR title: type={}", e.getClass().getSimpleName());
             return null;
         }
     }

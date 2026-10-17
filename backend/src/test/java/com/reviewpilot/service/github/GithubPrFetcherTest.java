@@ -8,6 +8,7 @@ import com.reviewpilot.service.diff.FileChange;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class GithubPrFetcherTest {
 
@@ -197,12 +202,53 @@ class GithubPrFetcherTest {
     @Test
     void reports_truncated_instead_of_passing_off_a_partial_fetch_as_complete() throws Exception {
         okJson(filesJson(100));   // a full page, and the cap is one page
+        okJson(filesJson(1));     // the probe page proves there is more
+
+        var r = fetcherWithPageCap(1).fetchFiles(PrUrl.parse("https://github.com/owner/repo/pull/42"));
+
+        assertEquals(100, r.files().size(), "the probe page must not be added to the result");
+        assertTrue(r.truncated(), "reaching the page cap must surface to the caller");
+        server.takeRequest();
+        assertEquals("/repos/owner/repo/pulls/42/files?per_page=100&page=2",
+                server.takeRequest().getPath());
+        assertEquals(2, server.getRequestCount(), "only one probe beyond the cap");
+    }
+
+    @Test
+    void exact_full_page_at_the_cap_is_not_reported_as_truncated() throws Exception {
+        okJson(filesJson(100));   // a full page, and the cap is one page
+        okJson("[]");             // the probe page is empty: the PR is complete
 
         var r = fetcherWithPageCap(1).fetchFiles(PrUrl.parse("https://github.com/owner/repo/pull/42"));
 
         assertEquals(100, r.files().size());
-        assertTrue(r.truncated(), "reaching the page cap must surface to the caller");
-        server.takeRequest();
-        assertEquals(1, server.getRequestCount(), "must not keep fetching past the cap");
+        assertFalse(r.truncated(), "an exact multiple of the page size is not truncated");
+        assertEquals(2, server.getRequestCount());
+    }
+
+    @Test
+    void programming_errors_are_not_mapped_to_upstream_failures() {
+        DiffParser exploding = mock(DiffParser.class);
+        when(exploding.parse(anyString())).thenThrow(new IllegalStateException("parser bug"));
+        var faulty = new GithubPrFetcher(client, exploding, props(3));
+        okJson("""
+                [{"filename":"A.java","status":"modified","additions":1,"deletions":0,
+                  "patch":"@@ -1 +1 @@\\n-a\\n+b"}]
+                """);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> faulty.fetchFiles(PrUrl.parse("https://github.com/owner/repo/pull/1")));
+
+        assertEquals("parser bug", thrown.getMessage(), "programming errors must not be wrapped as upstream 502");
+    }
+
+    @Test
+    void transport_timeouts_are_mapped_to_api_exception() {
+        server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
+        var shortTimeout = new GithubPrFetcher(client, new DiffParser(),
+                new GithubProperties(base, "test-token", List.of(), Duration.ofMillis(200), 3));
+
+        assertThrows(GithubApiException.class,
+                () -> shortTimeout.fetchFiles(PrUrl.parse("https://github.com/owner/repo/pull/1")));
     }
 }
