@@ -154,11 +154,9 @@ public class OpenAiCompatibleProvider implements ModelProvider {
                         .bodyToMono(OaiCompletion.class)
                         .block();
             } catch (WebClientResponseException e) {
-                // 带状态码的 HTTP 错误（4xx/5xx）非瞬时故障，直接失败
-                String respBody = e.getResponseBodyAsString();
-                log.warn("{} ({}) call failed: status={} body={}",
-                        ep.name(), caller, e.getStatusCode().value(),
-                        respBody != null ? respBody.substring(0, Math.min(respBody.length(), 500)) : "null");
+                // 带状态码的 HTTP 错误（4xx/5xx）非瞬时故障，直接失败；
+                // 上游响应体可能包含身份、代码或凭据，只记状态码，绝不落日志或回传。
+                log.warn("{} ({}) call failed: status={}", ep.name(), caller, e.getStatusCode().value());
                 throw new AiProviderException(
                         ep.name() + " API call failed with status " + e.getStatusCode().value(), e);
             } catch (RuntimeException e) {
@@ -168,15 +166,17 @@ public class OpenAiCompatibleProvider implements ModelProvider {
                         || msg.contains("timed out") || msg.contains("refused");
                 if (attempt < maxRetries && isTransient) {
                     long delay = (attempt + 1) * 1000L;
-                    log.warn("{} ({}) transient error (attempt {}/{}): {} — retrying in {}s",
-                            ep.name(), caller, attempt + 1, maxRetries + 1, msg, delay / 1000);
+                    log.warn("{} ({}) transient error (attempt {}/{}): type={} — retrying in {}s",
+                            ep.name(), caller, attempt + 1, maxRetries + 1,
+                            e.getClass().getSimpleName(), delay / 1000);
                     try { Thread.sleep(delay); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); break; }
                     continue;
                 }
                 if (attempt >= maxRetries) {
-                    log.error("{} ({}) failed after {} retries: {}", ep.name(), caller, maxRetries, msg);
+                    log.error("{} ({}) failed after {} retries: type={}",
+                            ep.name(), caller, maxRetries, e.getClass().getSimpleName());
                 }
-                throw new AiProviderException(ep.name() + " API call failed: " + msg, e);
+                throw new AiProviderException(ep.name() + " API call failed", e);
             }
         }
         return null;
