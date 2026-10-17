@@ -14,7 +14,6 @@ import java.util.Base64;
 
 /** GitHub Contents/PR 元数据适配器：负责抓取并解码源文件内容，不涉及 Prompt 预算策略。 */
 @Component
-/** GitHub 文件内容获取服务，负责读取仓库中的源文件内容。 */
 public class FileContentFetcher {
 
     private static final Logger log = LoggerFactory.getLogger(FileContentFetcher.class);

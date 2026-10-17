@@ -9,7 +9,6 @@ import java.util.Map;
 /** 提供 GET /api/health 存活检查接口，返回服务名与版本信息。 */
 @RestController
 @RequestMapping("/api")
-/** 健康检查控制器，负责提供服务存活状态接口。 */
 public class HealthController {
 
     /** 供前端/运维探活使用的固定状态响应。 */

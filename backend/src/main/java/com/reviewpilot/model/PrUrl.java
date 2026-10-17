@@ -8,7 +8,6 @@ import java.util.Objects;
  * 解析后的 GitHub PR 地址值对象，拆出 owner/repo/PR 编号并做格式校验。
  * 接受形如 {@code https://github.com/owner/repo/pull/12} 的 URL（允许末尾斜杠、锚点、查询串和首尾空白）。
  */
-/** Pull Request 地址值对象，保存仓库所有者、仓库名和 PR 编号。 */
 public record PrUrl(String owner, String repo, int number) {
 
     /** GitHub 官方 owner/repo 字符集；两者会被拼进对外 API 路径，因此不能放宽校验。 */

@@ -8,7 +8,6 @@ import java.util.List;
  * {@link #complete(String, String)} 是测试与旧 V2 管线使用的单发式接口；
  * {@link #chat(List, List)} 是 V3 多轮接口，支持工具调用，供 ReAct Agent 循环使用。
  */
-/** AI 模型提供者接口，定义模型调用的统一能力。 */
 public interface ModelProvider {
 
     /** 提供方符号名（与 yml 中 reviewpilot.ai.provider 对应）。 */

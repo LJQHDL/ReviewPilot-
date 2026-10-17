@@ -15,7 +15,6 @@ package com.reviewpilot.service.classifier;
  *   <li>{@link #OTHER} — 其余（前端、文档、构建文件、未分类），使用通用评审 Prompt。</li>
  * </ul>
  */
-/** 文件类型枚举，表示审查器支持识别的代码语言类别。 */
 public enum FileType {
     CONTROLLER,
     SERVICE,

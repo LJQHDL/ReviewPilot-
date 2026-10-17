@@ -9,7 +9,6 @@ import java.util.Set;
 
 /** 合并规则检出与 AI 检出的风险列表，按 (file, line, message) 去重。 */
 @Component
-/** 风险合并器，负责去重和整合不同来源的风险项。 */
 public class RiskMerger {
     /**
      * 把规则风险与 AI 风险合成一个按 (文件, 行号, 消息) 去重的列表：

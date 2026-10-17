@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 
 /** "只看 diff" 用例的应用层查询：解析 URL → 白名单校验 → 拉取并解析 PR 变更文件（不调用 LLM）。 */
 @Service
-/** Pull Request 文件查询类，负责获取并整理 PR 的文件列表。 */
 public class PrFilesQuery {
     private final GithubPrFetcher fetcher;
     private final RepoAllowlist allowlist;

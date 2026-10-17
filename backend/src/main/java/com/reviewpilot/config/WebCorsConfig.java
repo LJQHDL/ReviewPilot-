@@ -21,7 +21,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * 默认覆盖本机 localhost 上的 Vite 开发服务器。
  */
 @Configuration
-/** Web 跨域配置类，负责设置前端访问后端接口时的 CORS 规则。 */
 public class WebCorsConfig implements WebMvcConfigurer {
 
     private final String[] allowedOrigins;

@@ -20,7 +20,6 @@ import java.util.List;
  * 一条坏规则绝不阻塞整个评审。
  */
 @Component
-/** 风险检测器，负责运行已注册的风险规则并汇总发现的问题。 */
 public class RiskDetector {
 
     private static final Logger log = LoggerFactory.getLogger(RiskDetector.class);

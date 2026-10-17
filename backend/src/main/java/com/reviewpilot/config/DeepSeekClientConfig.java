@@ -13,7 +13,6 @@ import reactor.netty.http.client.HttpClient;
 /** 构建调用 DeepSeek API 的 WebClient Bean，统一配置超时、请求头和鉴权信息。 */
 @Configuration
 @EnableConfigurationProperties(DeepSeekProperties.class)
-/** DeepSeek 客户端配置类，负责创建并配置 AI 模型客户端。 */
 public class DeepSeekClientConfig {
 
     @Bean

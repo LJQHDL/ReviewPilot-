@@ -17,7 +17,6 @@ import java.util.regex.Pattern;
  * 因此不在此处理。"{@code \ No newline at end of file}" 标记被静默跳过。
  */
 @Component
-/** 差异解析器，负责将 Git diff 文本解析为结构化的文件和代码行变更。 */
 public class DiffParser {
 
     private static final Pattern HUNK_HEADER = Pattern.compile(

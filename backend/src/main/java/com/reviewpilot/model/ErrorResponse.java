@@ -9,7 +9,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * （如 message、reason），直到用户看到空白提示才被发现；记录类把该契约变成
  * 编译期不变量，能出现在 OpenAPI 输出中，也便于以后扩展（如加 request-id）而不散改各处。
  */
-/** API 错误响应数据类，统一承载返回给客户端的错误信息。 */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ErrorResponse(String error) {
     /** 静态工厂：用错误信息构造响应。 */

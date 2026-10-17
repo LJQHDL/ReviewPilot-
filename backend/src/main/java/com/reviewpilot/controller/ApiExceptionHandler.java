@@ -17,7 +17,6 @@ import com.reviewpilot.service.ai.AiAuthenticationException;
 
 /** 全局异常处理器，按异常类型将各类错误统一映射为带状态码的 JSON 错误响应。 */
 @RestControllerAdvice(basePackages = "com.reviewpilot.controller")
-/** API 异常处理器，负责将后端异常转换为统一的 HTTP 错误响应。 */
 public class ApiExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);

@@ -8,7 +8,6 @@ import java.util.List;
  * PR 的变更文件清单 + 清单是否完整的标志。GitHub 对 {@code /pulls/{n}/files} 分页，
  * 大型 PR 只能部分抓取——调用方必须把截断上报出来，而不是把不完整的评审当作完整结果。
  */
-/** GitHub 文件拉取结果类，保存文件变更及截断状态。 */
 public record FetchedFiles(List<FileChange> files, boolean truncated) {
 
     /** 所有构造入口统一保存文件清单快照。 */
