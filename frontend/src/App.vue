@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { review, isValidPrUrl, normalizePrUrl, setAccessToken } from './api/review.js'
 import AppHeader from './components/AppHeader.vue'
 import EmptyState from './components/EmptyState.vue'
@@ -60,6 +60,8 @@ const elapsed = ref(0)
 let elapsedTimer = null
 function startTimer() { elapsed.value = 0; elapsedTimer = setInterval(() => elapsed.value++, 1000) }
 function stopTimer() { clearInterval(elapsedTimer) }
+// 组件卸载（例如离开页面）时停止计时，避免遗留定时器继续更新状态
+onBeforeUnmount(stopTimer)
 
 function parsePr(url) {
   const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)

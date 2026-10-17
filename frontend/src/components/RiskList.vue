@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { riskKey } from '../utils/risk.js'
 
 const props = defineProps({
   risks: { type: Array, default: () => [] },
@@ -16,19 +17,20 @@ const filtered = computed(() => {
   return list
 })
 
-/** 折叠状态用 Set 支持同时展开多条；行内容 id 用于 aria-controls 关联 */
+/** 展开/复制状态以风险内容为键，过滤切换后仍指向同一条风险；行内容 id 用渲染下标关联 */
 const expanded = ref(new Set())
-function toggle(i) {
+const keyOf = risk => riskKey(risk)
+function toggle(key) {
   const s = new Set(expanded.value)
-  s.has(i) ? s.delete(i) : s.add(i)
+  s.has(key) ? s.delete(key) : s.add(key)
   expanded.value = s
 }
 
 const copied = ref(null)
-async function copyRisk(msg, i) {
+async function copyRisk(msg, key) {
   try {
     await navigator.clipboard.writeText(msg)
-    copied.value = i
+    copied.value = key
     setTimeout(() => { copied.value = null }, 1500)
   } catch { /* 剪贴板不可用时静默降级 */ }
 }
@@ -50,32 +52,32 @@ function levelOf(risk) { return (risk.level || 'LOW').toLowerCase() }
   </div>
 
   <ul v-else class="list">
-    <li v-for="(risk, i) in filtered" :key="i" class="row" :class="'row--' + levelOf(risk)">
+    <li v-for="(risk, i) in filtered" :key="keyOf(risk)" class="row" :class="'row--' + levelOf(risk)">
       <div class="row-head">
         <!-- 整行折叠区是一个真按钮：键盘可达、有展开状态语义 -->
         <button
           class="row-toggle"
-          :aria-expanded="expanded.has(i)"
+          :aria-expanded="expanded.has(keyOf(risk))"
           :aria-controls="'risk-body-' + i"
-          @click="toggle(i)"
+          @click="toggle(keyOf(risk))"
         >
           <span class="row-badge" :class="'badge--' + levelOf(risk)">{{ risk.level || 'LOW' }}</span>
           <span class="row-file">
             {{ risk.file || '(全局)' }}<span v-if="risk.line" class="row-line">:{{ risk.line }}</span>
           </span>
-          <span class="row-preview">{{ expanded.has(i) ? '' : preview(risk.message) }}</span>
-          <svg class="row-chevron" :class="{ 'row-chevron--open': expanded.has(i) }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <span class="row-preview">{{ expanded.has(keyOf(risk)) ? '' : preview(risk.message) }}</span>
+          <svg class="row-chevron" :class="{ 'row-chevron--open': expanded.has(keyOf(risk)) }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
         </button>
         <!-- 复制按钮是兄弟节点而非嵌套按钮，保持键盘可达且获焦时常显 -->
         <button
           class="row-copy"
-          :class="{ 'row-copy--done': copied === i }"
-          :aria-label="copied === i ? '已复制该风险' : '复制该风险内容'"
-          @click="copyRisk(risk.message, i)"
+          :class="{ 'row-copy--done': copied === keyOf(risk) }"
+          :aria-label="copied === keyOf(risk) ? '已复制该风险' : '复制该风险内容'"
+          @click="copyRisk(risk.message, keyOf(risk))"
         >
-          <svg v-if="copied !== i" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg v-if="copied !== keyOf(risk)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
           </svg>
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -84,7 +86,7 @@ function levelOf(risk) { return (risk.level || 'LOW').toLowerCase() }
         </button>
       </div>
 
-      <div :id="'risk-body-' + i" v-show="expanded.has(i)" class="row-body">
+      <div :id="'risk-body-' + i" v-show="expanded.has(keyOf(risk))" class="row-body">
         <p class="row-msg">{{ risk.message }}</p>
         <a
           v-if="risk.file && repoUrl"
