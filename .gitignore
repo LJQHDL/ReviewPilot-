@@ -51,3 +51,25 @@ docs/requirements/Java开发手册（嵩山版）.pdf
 *.webm
 *.mkv
 docs/demo-script.md
+
+# --- Local AI tooling state (per-machine, not shareable) ---
+.playwright-mcp/
+.claude/settings.local.json
+.codex/
+.mewcode/
+backend/.claude/agent-memory/
+
+# --- Personal notes & one-off review artifacts (not product docs) ---
+/Github抓取的问题.md
+/ReAct循环工具调用结果丢失的问题.md
+/diffparser问题.md
+/reviewPipeline流程编排的问题.md
+/interview-guide-fullstack-intern.md
+/docs/interview-questions.md
+
+# --- Debug screenshots captured during UI work ---
+/empty-state.png
+/light-empty.png
+/light-result.png
+/result-full.png
+/docs/security-access-mobile.png
