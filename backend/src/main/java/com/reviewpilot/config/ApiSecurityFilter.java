@@ -6,6 +6,9 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
@@ -25,7 +28,10 @@ import java.util.function.LongSupplier;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class ApiSecurityFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(ApiSecurityFilter.class);
     private static final long WINDOW_NANOS = 60_000_000_000L;
+    private static final String REQUEST_ID = "requestId";
+    private static final String REVIEW_PATH = "/api/review";
     private final boolean enabled;
     private final byte[] tokenDigest;
     private final int reviewsPerMinute;
@@ -66,36 +72,54 @@ public class ApiSecurityFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        // 鉴权、安全头与配额只属于本服务的 API；其他路径不归本过滤器管。
+        if (!path.startsWith("/api/")) {
+            chain.doFilter(request, response);
+            return;
+        }
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("X-Content-Type-Options", "nosniff");
-        response.setHeader("X-Request-ID", UUID.randomUUID().toString());
-        String path = request.getRequestURI().substring(request.getContextPath().length());
-        if (("GET".equals(request.getMethod()) && "/api/health".equals(path))
-                || CorsUtils.isPreFlightRequest(request)) {
-            chain.doFilter(request, response);
-            return;
-        }
-        if (enabled && !authenticated(request)) {
-            response.setHeader("WWW-Authenticate", "Bearer");
-            reject(response, 401, "Authentication required");
-            return;
-        }
-        // 当前 POST 均为审查入口；按方法准入，避免 URL 别名绕过配额。
-        if (!"POST".equals(request.getMethod())) {
-            chain.doFilter(request, response);
-            return;
-        }
-        long retryAfter = acquire();
-        if (retryAfter > 0) {
-            response.setHeader("Retry-After", Long.toString(retryAfter));
-            reject(response, 429, "Review capacity exceeded; please retry later");
-            return;
-        }
+        String requestId = UUID.randomUUID().toString();
+        response.setHeader("X-Request-ID", requestId);
+        MDC.put(REQUEST_ID, requestId);
         try {
-            chain.doFilter(request, response);
+            if (("GET".equals(request.getMethod()) && "/api/health".equals(path))
+                    || CorsUtils.isPreFlightRequest(request)) {
+                chain.doFilter(request, response);
+                return;
+            }
+            if (enabled && !authenticated(request)) {
+                response.setHeader("WWW-Authenticate", "Bearer");
+                reject(response, 401, "Authentication required");
+                return;
+            }
+            // 只有审查提交消耗频率/并发额度；其他 API 请求只受鉴权约束。
+            if (!isReviewSubmission(request, path)) {
+                log.debug("api_request method={} path={}", request.getMethod(), path);
+                chain.doFilter(request, response);
+                return;
+            }
+            long retryAfter = acquire();
+            if (retryAfter > 0) {
+                response.setHeader("Retry-After", Long.toString(retryAfter));
+                reject(response, 429, "Review capacity exceeded; please retry later");
+                return;
+            }
+            log.debug("review_admitted method={} path={}", request.getMethod(), path);
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                release();
+            }
         } finally {
-            release();
+            MDC.remove(REQUEST_ID);
         }
+    }
+
+    /** 仅 POST /api/review 计入审查额度，避免新增 POST 端点误占配额。 */
+    private static boolean isReviewSubmission(HttpServletRequest request, String path) {
+        return "POST".equals(request.getMethod()) && REVIEW_PATH.equals(path);
     }
 
     private boolean authenticated(HttpServletRequest request) {

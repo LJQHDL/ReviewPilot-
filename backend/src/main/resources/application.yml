@@ -12,6 +12,10 @@ logging:
   level:
     root: INFO
     com.reviewpilot: DEBUG
+  pattern:
+    # 每个 API 请求的 requestId 由 ApiSecurityFilter 写入 MDC，随所有日志输出，
+    # 便于把脱敏后的 5xx 与具体请求关联起来。
+    level: "%5p [%X{requestId:-}]"
 
 reviewpilot:
   security:

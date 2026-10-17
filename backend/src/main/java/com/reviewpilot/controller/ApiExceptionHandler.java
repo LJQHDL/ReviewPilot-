@@ -8,6 +8,7 @@ import com.reviewpilot.service.github.GithubPrNotFoundException;
 import com.reviewpilot.service.github.RepoNotAllowedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -37,7 +38,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(GithubAuthException.class)
     public ResponseEntity<ErrorResponse> handleGithubAuth(GithubAuthException e) {
         // 上游响应可能包含身份、代码或凭据，日志仅记录状态。
-        log.warn("GitHub auth rejected: status={}", e.status());
+        log.warn("GitHub auth rejected: status={} requestId={}", e.status(), MDC.get("requestId"));
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ErrorResponse.of(e.getMessage()));
     }
 
@@ -47,7 +48,8 @@ public class ApiExceptionHandler {
         // 401/403/404 之外的任意 GitHub 状态码统一转 502，
         // 否则 Spring 默认的 {timestamp,status,error,path} 响应体前端拦截器读不到，
         // 所有上游故障都只会显示成"请求失败"。
-        log.warn("GitHub upstream failure: type={}", e.getClass().getSimpleName());
+        log.warn("GitHub upstream failure: type={} requestId={}",
+                e.getClass().getSimpleName(), MDC.get("requestId"));
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ErrorResponse.of("GitHub API request failed"));
     }
@@ -63,7 +65,8 @@ public class ApiExceptionHandler {
     public ResponseEntity<ErrorResponse> handleAi(AiProviderException e) {
         HttpStatus status = e instanceof AiAuthenticationException
                 ? HttpStatus.UNAUTHORIZED : HttpStatus.BAD_GATEWAY;
-        log.warn("AI upstream failure: type={}", e.getClass().getSimpleName());
+        log.warn("AI upstream failure: type={} requestId={}",
+                e.getClass().getSimpleName(), MDC.get("requestId"));
         return ResponseEntity.status(status).body(ErrorResponse.of(e instanceof AiAuthenticationException
                 ? "AI service authentication failed" : "AI service request failed"));
     }

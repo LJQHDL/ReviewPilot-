@@ -76,4 +76,44 @@ class ApiAdmissionTest {
             executor.shutdownNow();
         }
     }
+
+    @Test
+    void nonReviewPostDoesNotConsumeTheReviewBudget() throws Exception {
+        var time = new AtomicLong();
+        var filter = new ApiSecurityFilter(true, TOKEN, 1, 1, new ObjectMapper(), time::get);
+        var other = new MockHttpServletRequest("POST", "/api/other");
+        other.addHeader("Authorization", "Bearer " + TOKEN);
+        var otherResponse = new MockHttpServletResponse();
+        filter.doFilter(other, otherResponse, (req, res) -> res.getWriter().write("other"));
+        assertEquals("other", otherResponse.getContentAsString());
+
+        var review = new MockHttpServletResponse();
+        filter.doFilter(request(), review, (req, res) -> res.getWriter().write("reviewed"));
+        assertEquals("reviewed", review.getContentAsString(),
+                "a non-review POST must not spend the single review permit");
+    }
+
+    @Test
+    void nonApiPathsAreNotAuthenticatedOrDecorated() throws Exception {
+        var filter = new ApiSecurityFilter(true, TOKEN, 1, 1, new ObjectMapper(), new AtomicLong()::get);
+        var outside = new MockHttpServletRequest("POST", "/not-api");
+        var response = new MockHttpServletResponse();
+        filter.doFilter(outside, response, (req, res) -> res.getWriter().write("passed"));
+        assertEquals("passed", response.getContentAsString());
+        assertNull(response.getHeader("X-Request-ID"), "non-API paths are outside this filter");
+    }
+
+    @Test
+    void requestIdIsAvailableDuringTheRequestAndClearedAfterwards() throws Exception {
+        var filter = new ApiSecurityFilter(true, TOKEN, 10, 2, new ObjectMapper(), new AtomicLong()::get);
+        var response = new MockHttpServletResponse();
+        var seen = new String[1];
+        filter.doFilter(request(), response, (req, res) -> {
+            seen[0] = org.slf4j.MDC.get("requestId");
+            res.getWriter().write("ok");
+        });
+        assertNotNull(seen[0], "requestId must be in the MDC while the request runs");
+        assertEquals(seen[0], response.getHeader("X-Request-ID"));
+        assertNull(org.slf4j.MDC.get("requestId"), "requestId must be cleared afterwards");
+    }
 }

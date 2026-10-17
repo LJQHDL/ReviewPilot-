@@ -56,12 +56,20 @@ class ApiSecurityTest {
 
     @Test
     void permitsHealthAndCorsPreflightWithoutCredentials() throws Exception {
-        mvc.perform(get("/api/health")).andExpect(status().isOk());
+        mvc.perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists("X-Request-ID"));
         mvc.perform(options("/api/review").header("Origin", "http://localhost:5173")
                         .header("Access-Control-Request-Method", "POST")
                         .header("Access-Control-Request-Headers", "authorization,content-type"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+        verifyNoInteractions(pipeline, filesQuery);
+    }
+
+    @Test
+    void nonApiPathsAreNotAuthenticated() throws Exception {
+        mvc.perform(post("/not-api")).andExpect(status().isNotFound());
         verifyNoInteractions(pipeline, filesQuery);
     }
 
@@ -73,6 +81,7 @@ class ApiSecurityTest {
                         .contentType("application/json").content("{\"prUrl\":\"url\"}"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().exists("X-Request-ID"))
                 .andExpect(jsonPath("$.summary").value("reviewed"));
         mvc.perform(post("/api/review").header("Authorization", TOKEN)
                         .contentType("application/json").content("{\"prUrl\":\"url\"}"))
