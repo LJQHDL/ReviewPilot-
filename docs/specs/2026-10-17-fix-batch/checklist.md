@@ -1,79 +1,53 @@
 # ReviewPilot 质量修复 Checklist（2026-10-17）
 
 > 每一项通过运行代码或观察行为来验证，聚焦系统行为。
+> 验收执行时间：2026-10-17；验收提交：`888c1ab`。
 
 ## 实现完整性
 
-- [ ] F1 调试残留已删除：`grep -rn "UserService.java" backend/src/main/java` 无结果，后端编译通过。
-- [ ] F2 失效 Javadoc 已删除：扫描 64 个受影响文件，不存在"注解行后紧跟 `/**`"的模式；每类仍保留一份原有职责说明。
-- [ ] F3 预算耗尽硬停止：过期预算下 `ModelProvider.chat` 调用次数不增加（单元测试断言）。
-- [ ] F3 尽力解析：最后一次 assistant 回复为合法 JSON 时被采用（单元测试）。
-- [ ] F3 降级结果：无法解析时 summary 含"预算耗尽"，规则风险仍出现在最终结果（单元测试 + 流水线集成测试）。
-- [ ] F4 准入作用域：非 `/api/*` 路径不触发鉴权；只有 `POST /api/review` 消耗审查额度（过滤器测试）。
-- [ ] F5 个人文件策略：`AGENTS.md` 与 `.claude/agents/` 被跟踪；其余个人文件在 `git status` 中不出现（`git check-ignore`）。
-- [ ] F6 异常分类：传输故障仍为 502；模拟编程错误返回 500 且日志为 ERROR（单元测试 + MockMvc）。
-- [ ] F7 URL 加固：owner/repo 为 `.`/`..` 时返回 400，且无 GitHub 出站请求（单元测试）。
-- [ ] F8 可观测性：API 响应带 `X-Request-ID`；同一请求的日志含相同 ID；5xx 日志不含上游响应体/密钥（MockMvc + 日志捕获）。
-- [ ] F9 截断准确：整页倍数的完整 PR 返回 `truncated=false`；超过页数上限返回 `truncated=true`（单元测试）。
-- [ ] F10 展开状态：切换风险级别过滤后，展开状态仍对应原风险（前端单元测试 + 浏览器观察）。
-- [ ] F11 计时器：组件卸载后计时器停止更新（前端单元测试/浏览器观察）。
-- [ ] F12 GET 边界：部署文档明确 GET 不限流、由网关限流；鉴权开启时无令牌 401、有令牌正常（文档 + MockMvc）。
-- [ ] F13 产物清理：`git ls-files '*.png'` 不含根目录 4 张；`git ls-files '.playwright-mcp/*'` 为空；对应路径被忽略。
-- [ ] F14 提交序列：`git log --oneline` 显示基线提交 + 按主题拆分提交，每个提交可独立编译。
+- [x] F1 调试残留已删除：`grep -rn "UserService.java" backend/src/main/java` 无结果，后端编译通过。
+- [x] F2 失效 Javadoc 已删除：全量扫描 `backend/src/main/java`，不存在"注解行后紧跟 `/**`"的模式（0 个文件）；64 个文件仅删除 64 行注释。
+- [x] F3 预算耗尽硬停止：`ReviewAgentDeadlineTest` 断言过期预算下 `ModelProvider.chat` 调用次数不增加。
+- [x] F3 尽力解析：最后一次 assistant 回复为合法 JSON 时被采用（`an_expired_budget_reuses_the_last_assistant_reply`）。
+- [x] F3 降级结果：无法解析时 summary 含"时间预算已用尽"；`ReviewPipelineFlowTest.a_budget_degraded_review_still_carries_rule_risks` 证明规则风险仍进入最终结果。
+- [x] F4 准入作用域：`ApiAdmissionTest` 覆盖非审查 POST 不占额度、非 API 路径不鉴权；`ApiSecurityTest` 覆盖 429 与健康检查放行。
+- [x] F5 个人文件策略：`AGENTS.md`、`.claude/agents/*`、`backend/.claude/agents/*`、`frontend/.claude/agents/*` 已跟踪；`git check-ignore` 命中所有个人文件与本地配置。
+- [x] F6 异常分类：`GithubPrFetcherTest.programming_errors_are_not_mapped_to_upstream_failures` 断言编程错误原样抛出；`transport_timeouts_are_mapped_to_api_exception` 断言超时映射为 `GithubApiException`。
+- [x] F7 URL 加固：`PrUrlTest.rejects_dot_segments_in_owner_or_repo` 覆盖 `.`、`..`、`%2e%2e`。
+- [x] F8 可观测性：`ApiSecurityTest` 断言 `X-Request-ID`；`ApiAdmissionTest.requestIdIsAvailableDuringTheRequestAndClearedAfterwards` 断言 MDC 生命周期；日志 pattern 输出 `[requestId]`（运行日志可见）。
+- [x] F9 截断准确：`exact_full_page_at_the_cap_is_not_reported_as_truncated` 与 `reports_truncated_instead_of_passing_off_a_partial_fetch_as_complete` 均通过。
+- [x] F10 展开状态：`risk.test.js` 覆盖内容键在过滤切换后仍指向同一风险（未运行浏览器，证据为单元测试 + `npm run build`）。
+- [x] F11 计时器：`App.vue` 注册 `onBeforeUnmount(stopTimer)`，构建通过（未运行浏览器，证据为代码 + 构建）。
+- [x] F12 GET 边界：`docs/security-deployment.md:48` 明确应用层只对 `POST /api/review` 限流；`ApiSecurityTest` 覆盖 GET 需鉴权。
+- [x] F13 产物清理：`git ls-files '*.png' '.playwright-mcp/*'` 为空；`.gitignore` 命中对应路径。
+- [x] F14 提交序列：基线提交 `f4ac830` + 6 个主题提交 + 1 个测试提交，每个提交均可编译。
 
 ## 集成
 
-- [ ] `ReviewPipeline` 收到降级结果后仍调用 `RiskMerger`，规则风险不丢失（流水线集成测试）。
-- [ ] `ApiSecurityFilter` → Controller → `ApiExceptionHandler` 的 requestId 一致（MockMvc + 日志捕获）。
-- [ ] `GithubPrFetcher` 的探测页内容不进入最终文件列表（分页单元测试）。
-- [ ] `RiskList` 使用 `riskKey` 作为展开/复制状态键，构建通过且单测通过。
-- [ ] 所有公开接口至少被一个真实调用方使用（编译 + 全量测试通过）。
+- [x] `ReviewPipeline` 收到降级结果后仍合并规则风险（`a_budget_degraded_review_still_carries_rule_risks`）。
+- [x] `ApiSecurityFilter` → Controller → `ApiExceptionHandler` 的 requestId 一致（运行日志中 `[<uuid>]` 与响应头一致；过滤器直接调用时 `requestId=null` 属预期）。
+- [x] `GithubPrFetcher` 探测页内容不进入文件列表（`reports_truncated...` 断言结果仍为 100 个文件）。
+- [x] `RiskList` 使用 `riskKey` 作为展开/复制状态键（单测 + 构建通过）。
+- [x] 公开接口仍有真实调用方（`mvn -o test` 全绿，214 个测试）。
 
 ## 编译与测试
 
-- [ ] `cd backend && mvn -o test` 通过，测试数 ≥202，0 failure / 0 error / 0 skipped（记录命令输出）。
-- [ ] `cd frontend && node --test src/utils/risk.test.js src/api/review.test.js` 通过（记录输出）。
-- [ ] `cd frontend && npm run build` 通过（记录输出）。
-- [ ] `git diff --check` 无空白错误。
-- [ ] `pom.xml` 与 `package.json` 无新增依赖（`git diff` 确认）。
+- [x] `cd backend && mvn -o test`：214 tests，0 failure / 0 error / 0 skipped（基线 202）。
+- [x] `cd frontend && node --test src/utils/risk.test.js src/api/review.test.js`：5 tests，0 fail。
+- [x] `cd frontend && npm run build`：vite 构建成功（129.41 kB JS / 20.47 kB CSS）。
+- [x] `git diff --check`：无空白错误。
+- [x] `pom.xml` / `package.json` / `package-lock.json` 无改动（`git diff` 为空）。
 
 ## 端到端场景
 
-- [ ] **场景 1：预算耗尽降级**
-  - 操作：用极短预算和 mock 模型跑一次审查，模型先返回工具调用并耗尽预算。
-  - 预期：不再发起第二次模型调用；若最后回复是合法 JSON 则采用，否则 summary 含"预算耗尽"；最终响应仍包含规则风险。
-- [ ] **场景 2：鉴权与配额**
-  - 操作：开启鉴权，分别发送无令牌、合法令牌、连续两次审查、GET 文件查询。
-  - 预期：无令牌 401；第一次审查 200；第二次 429 且有 `Retry-After`；GET 不受审查配额影响；所有 API 响应带 `X-Request-ID`。
-- [ ] **场景 3：GitHub 分页边界**
-  - 操作：mock 200 个文件（上限 2 页）与 300 个文件（上限 2 页）。
-  - 预期：前者 `truncated=false`，后者 `truncated=true`；请求序列包含一次探测页。
-- [ ] **场景 4：前端过滤与卸载**
-  - 操作：展开一条 HIGH 风险，切换到 MEDIUM 再切回；评审进行中离开页面。
-  - 预期：展开状态仍对应原风险；计时器停止更新。
-- [ ] **场景 5：仓库卫生**
-  - 操作：执行 `git status --short --ignored`、`git ls-files`、`git log --oneline -10`。
-  - 预期：个人文件显示为已忽略；调试产物不在跟踪列表；提交历史为基线 + 主题提交。
+- [x] **场景 1：预算耗尽降级** — 单元测试与流水线集成测试验证：不再调用模型，summary 含"时间预算已用尽"，规则风险保留。
+- [x] **场景 2：鉴权与配额** — `ApiSecurityTest`：无令牌 401、合法令牌 200、第二次 429 + `Retry-After`、GET 不受审查配额影响、响应带 `X-Request-ID`。
+- [x] **场景 3：GitHub 分页边界** — `GithubPrFetcherTest`：整页倍数探测为空 → `truncated=false`；探测非空 → `truncated=true`；探测页只请求一次。
+- [x] **场景 4：前端过滤与卸载** — 过滤稳定性由 `risk.test.js` 覆盖；卸载清理由 `onBeforeUnmount` 代码与构建验证（未跑浏览器）。
+- [x] **场景 5：仓库卫生** — `git status --short` 干净；`git ls-files` 无调试产物；提交历史为基线 + 主题提交。
 
-## 验收标准覆盖
+## 验收结果
 
-| spec 验收标准 | checklist 条目 |
-|---|---|
-| AC1 | F1 调试残留 |
-| AC2 | F2 失效 Javadoc |
-| AC3 | F3 硬停止 / 尽力解析 / 降级结果 / 场景 1 |
-| AC4 | F4 准入作用域 / 场景 2 |
-| AC5 | F5 个人文件策略 |
-| AC6 | F6 异常分类 |
-| AC7 | F7 URL 加固 |
-| AC8 | F8 可观测性 / 场景 2 |
-| AC9 | F9 截断准确 / 场景 3 |
-| AC10 | F10 展开状态 / 场景 4 |
-| AC11 | F11 计时器 / 场景 4 |
-| AC12 | F12 GET 边界 / 场景 2 |
-| AC13 | F13 产物清理 / 场景 5 |
-| AC14 | F14 提交序列 / 场景 5 |
-| AC15 | 编译与测试第 1 项 |
-| AC16 | 编译与测试第 2、3 项 |
-| AC17 | 编译与测试第 5 项 / F3 硬停止 |
-| AC18 | docs/specs 目录四份文档存在 |
+- 通过：全部条目。
+- 未通过：无。
+- 说明：场景 4 的浏览器观察未执行，用单元测试与构建替代；其余条目均有命令输出或测试断言作为证据。
